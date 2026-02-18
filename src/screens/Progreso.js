@@ -1,581 +1,445 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { supabase } from '../supabaseClient';
+import React, { useState } from 'react';
+import { useApp } from '../context/AppContext';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 
-const USER_ID = '00000000-0000-0000-0000-000000000001';
+export default function Progreso() {
+  const { registrosPeso, pesoLoaded, registrarPeso, racha } = useApp();
 
-function getTodayKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+  const [showModal, setShowModal] = useState(false);
+  const [pesoInput, setPesoInput] = useState('');
+  const [semanaInput, setSemanaInput] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [filtro, setFiltro] = useState('todo'); // '6sem' | '3mes' | 'todo'
 
-function calcularSemana(fecha, fechaInicio) {
-  const inicio = new Date(fechaInicio);
-  const actual = new Date(fecha);
-  const diffTime = actual - inicio;
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  return Math.floor(diffDays / 7) + 1;
-}
+  // ── Calcular datos ──────────────────────────────
+  const pesoInicial = registrosPeso.length > 0 ? registrosPeso[0].peso : null;
+  const pesoActual = registrosPeso.length > 0 ? registrosPeso[registrosPeso.length - 1].peso : null;
+  const kgPerdidos = pesoInicial && pesoActual ? (pesoInicial - pesoActual).toFixed(1) : '0.0';
 
-function formatFechaShort(str) {
-  if (!str) return '';
-  const d = new Date(str);
-  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${d.getDate()} ${months[d.getMonth()]}`;
-}
+  // ── Filtrar registros para el gráfico ──────────
+  const filtrarRegistros = () => {
+    if (!registrosPeso.length) return [];
+    const ahora = new Date();
 
-function buildChartAndRecords(registros) {
-  const sorted = [...registros].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  const last6 = sorted.slice(-6);
-  const firstPeso = last6.length ? last6[0].peso : 0;
-  const chartData = last6.map((r, i) => ({
-    semana: `S${i + 1}`,
-    peso: r.peso
-  }));
-  const weeklyRecords = last6.map((r, i) => ({
-    semana: `Semana ${i + 1}`,
-    fecha: formatFechaShort(r.fecha),
+    return registrosPeso.filter((r) => {
+      if (filtro === 'todo') return true;
+      const fecha = new Date(r.fecha);
+      const diffDias = (ahora - fecha) / (1000 * 60 * 60 * 24);
+      if (filtro === '6sem') return diffDias <= 42;
+      if (filtro === '3mes') return diffDias <= 90;
+      return true;
+    });
+  };
+
+  const datosGrafico = filtrarRegistros().map((r) => ({
+    fecha: new Date(r.fecha).toLocaleDateString('es-UY', {
+      day: '2-digit',
+      month: 'short',
+    }),
     peso: r.peso,
-    perdido: Math.round((firstPeso - r.peso) * 10) / 10
   }));
-  return { chartData, weeklyRecords };
-}
 
-function Progreso() {
-  const [selectedPeriod, setSelectedPeriod] = useState('6 semanas');
-  const [registros, setRegistros] = useState([]);
-  const [showPesoModal, setShowPesoModal] = useState(false);
-  const [nuevoPeso, setNuevoPeso] = useState('');
-  const [loading, setLoading] = useState(true);
+  // ── Guardar peso ────────────────────────────────
+  const handleGuardarPeso = async () => {
+    if (!pesoInput || isNaN(parseFloat(pesoInput))) return;
 
-  // Cargar registros al montar
-  useEffect(() => {
-    const loadRegistros = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('registros_peso')
-          .select('fecha, peso, semana')
-          .eq('usuario_id', USER_ID)
-          .order('fecha', { ascending: true });
+    setGuardando(true);
+    const result = await registrarPeso(pesoInput, semanaInput || null);
+    setGuardando(false);
 
-        if (!error && data) {
-          setRegistros(data);
-        }
-      } catch (error) {
-        console.error('Error cargando registros:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadRegistros();
-  }, []);
-
-  const { chartData, weeklyRecords } = useMemo(() => buildChartAndRecords(registros), [registros]);
-
-  const openPesoModal = () => {
-    setNuevoPeso('');
-    setShowPesoModal(true);
-  };
-
-  const closePesoModal = () => {
-    setShowPesoModal(false);
-    setNuevoPeso('');
-  };
-
-  const savePeso = async () => {
-    const num = parseFloat(nuevoPeso.replace(',', '.').trim());
-    if (Number.isNaN(num) || num <= 0 || num >= 300) return;
-
-    const fecha = getTodayKey();
-    
-    // Calcular semana: si hay registros, usar la fecha del primer registro como inicio
-    // Si no hay registros, usar una fecha de inicio por defecto (15 de enero 2026)
-    const fechaInicio = registros.length > 0 
-      ? registros[0].fecha 
-      : '2026-01-15';
-    const semana = calcularSemana(fecha, fechaInicio);
-    
-    try {
-      const { error } = await supabase
-        .from('registros_peso')
-        .upsert({
-          usuario_id: USER_ID,
-          fecha: fecha,
-          peso: num,
-          semana: semana
-        });
-
-      if (error) {
-        console.error('Error guardando peso:', error);
-        return;
-      }
-
-      // Recargar registros
-      const { data, error: reloadError } = await supabase
-        .from('registros_peso')
-        .select('fecha, peso, semana')
-        .eq('usuario_id', USER_ID)
-        .order('fecha', { ascending: true });
-
-      if (!reloadError && data) {
-        setRegistros(data);
-      }
-
-      closePesoModal();
-    } catch (error) {
-      console.error('Error guardando peso:', error);
+    if (result.success) {
+      setPesoInput('');
+      setSemanaInput('');
+      setShowModal(false);
+    } else {
+      alert('Error al guardar. Intentá de nuevo.');
     }
   };
 
-  // Colores (iguales a Home.js)
-  const colors = {
-    sage: '#7a9e7e',
-    sageDark: '#3d5c41',
-    cream: '#f8f4ee',
-    gold: '#b8956a'
-  };
-
-  // Estilos
-  const styles = {
-    container: {
-      padding: '1.25rem 1.25rem 1rem',
-      minHeight: 'calc(100vh - 80px)',
-      background: colors.cream
-    },
-    loadingText: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      color: colors.sageDark,
-      opacity: 0.7,
-      textAlign: 'center',
-      padding: '2rem'
-    },
-    header: {
-      background: `linear-gradient(135deg, ${colors.sageDark} 0%, ${colors.sage} 100%)`,
-      borderRadius: '0 0 1.5rem 1.5rem',
-      padding: '2rem 1.25rem 1.5rem',
-      margin: '-1.25rem -1.25rem 1.5rem -1.25rem',
-      color: 'white'
-    },
-    headerTitle: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.75rem',
-      fontWeight: 600,
-      margin: 0,
-      marginBottom: '0.25rem'
-    },
-    headerSubtitle: {
-      fontSize: '0.95rem',
-      opacity: 0.9,
-      fontFamily: "'Jost', sans-serif",
-      fontWeight: 400,
-      margin: 0
-    },
-    progressCard: {
-      background: 'white',
-      borderRadius: '1rem',
-      padding: '2rem 1.5rem',
-      marginBottom: '1.25rem',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-      textAlign: 'center'
-    },
-    progressNumber: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '3rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.5rem',
-      lineHeight: 1
-    },
-    progressText: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      color: colors.sageDark,
-      opacity: 0.7,
-      lineHeight: 1.5
-    },
-    chipsContainer: {
-      display: 'flex',
-      gap: '0.75rem',
-      marginBottom: '1.25rem',
-      overflowX: 'auto',
-      paddingBottom: '0.5rem'
-    },
-    chip: {
-      padding: '0.5rem 1.25rem',
-      borderRadius: '2rem',
-      border: `2px solid ${colors.sage}`,
-      background: 'white',
-      color: colors.sageDark,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      fontWeight: 500,
-      cursor: 'pointer',
-      whiteSpace: 'nowrap',
-      transition: 'all 0.2s',
-      flexShrink: 0
-    },
-    chipActive: {
-      background: colors.sage,
-      color: 'white',
-      borderColor: colors.sage
-    },
-    chartCard: {
-      background: 'white',
-      borderRadius: '1rem',
-      padding: '1.5rem 1rem 1rem',
-      marginBottom: '1.25rem',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
-    },
-    miniCardsContainer: {
-      display: 'flex',
-      gap: '0.75rem',
-      marginBottom: '1.25rem'
-    },
-    miniCard: {
-      flex: 1,
-      background: 'white',
-      borderRadius: '0.75rem',
-      padding: '1rem 0.75rem',
-      textAlign: 'center',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
-    },
-    miniCardNumber: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.5rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.25rem'
-    },
-    miniCardLabel: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.75rem',
-      color: colors.sageDark,
-      opacity: 0.7
-    },
-    sectionTitle: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.1rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.75rem',
-      marginTop: '1.5rem'
-    },
-    recordsList: {
-      background: 'white',
-      borderRadius: '1rem',
-      overflow: 'hidden',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
-    },
-    recordItem: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '1rem 1.25rem',
-      borderBottom: '1px solid rgba(61, 92, 65, 0.1)'
-    },
-    recordItemLast: {
-      borderBottom: 'none'
-    },
-    recordLeft: {
-      flex: 1
-    },
-    recordWeek: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.25rem'
-    },
-    recordDate: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.85rem',
-      color: colors.sageDark,
-      opacity: 0.6
-    },
-    recordRight: {
-      textAlign: 'right'
-    },
-    recordPeso: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '1rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.25rem'
-    },
-    recordPerdido: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.85rem',
-      color: colors.sage,
-      fontWeight: 500
-    },
-    addPesoButton: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '0.75rem',
-      border: `2px solid ${colors.sage}`,
-      background: 'white',
-      color: colors.sageDark,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      fontWeight: 500,
-      cursor: 'pointer',
-      marginBottom: '1.25rem'
-    },
-    modalOverlay: {
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0,0,0,0.4)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '1.25rem'
-    },
-    modalBox: {
-      background: colors.cream,
-      borderRadius: '1rem',
-      padding: '1.5rem',
-      maxWidth: '340px',
-      width: '100%',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
-    },
-    modalTitle: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.1rem',
-      color: colors.sageDark,
-      marginBottom: '1rem'
-    },
-    modalInput: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '0.5rem',
-      border: `2px solid rgba(61, 92, 65, 0.3)`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '1rem',
-      marginBottom: '1rem',
-      boxSizing: 'border-box'
-    },
-    modalActions: {
-      display: 'flex',
-      gap: '0.75rem'
-    },
-    modalButtonSave: {
-      flex: 1,
-      padding: '0.75rem',
-      borderRadius: '0.75rem',
-      border: 'none',
-      background: colors.sage,
-      color: 'white',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '1rem',
-      fontWeight: 500,
-      cursor: 'pointer'
-    },
-    modalButtonCancel: {
-      flex: 1,
-      padding: '0.75rem',
-      borderRadius: '0.75rem',
-      border: `2px solid ${colors.sage}`,
-      background: 'transparent',
-      color: colors.sageDark,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '1rem',
-      fontWeight: 500,
-      cursor: 'pointer'
-    }
-  };
-
-  const periods = ['6 semanas', '3 meses', 'Todo'];
-
-  const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div style={{
-          background: 'white',
-          padding: '0.5rem 0.75rem',
-          borderRadius: '0.5rem',
-          border: `1px solid ${colors.sage}`,
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
-        }}>
-          <p style={{
-            margin: 0,
-            fontFamily: "'Jost', sans-serif",
-            fontSize: '0.85rem',
-            color: colors.sageDark,
-            fontWeight: 600
-          }}>
-            {payload[0].payload.semana}: {payload[0].value} kg
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  const pesoMin = chartData.length ? Math.min(...chartData.map((d) => d.peso)) - 2 : 70;
-  const pesoMax = chartData.length ? Math.max(...chartData.map((d) => d.peso)) + 2 : 80;
-  const yDomain = [Math.max(40, Math.floor(pesoMin)), Math.ceil(pesoMax)];
-
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loadingText}>Cargando...</div>
-      </div>
-    );
-  }
+  const semanaActual = registrosPeso.length > 0
+    ? Math.max(...registrosPeso.filter((r) => r.semana).map((r) => r.semana), 1)
+    : 1;
 
   return (
     <div style={styles.container}>
+      {/* ── Header ──────────────────────────────── */}
       <div style={styles.header}>
-        <h1 style={styles.headerTitle}>Tu Progreso</h1>
-        <p style={styles.headerSubtitle}>Semana 6 de 12</p>
+        <p style={styles.headerSub}>Tu progreso</p>
+        <h1 style={styles.headerTitle}>Semana {semanaActual} de 12</h1>
       </div>
 
-      <div style={styles.progressCard}>
-        <div style={styles.progressNumber}>−5,5 kg</div>
-        <div style={styles.progressText}>
-          de tu objetivo de −10 kg · 55% logrado
-        </div>
-      </div>
-
-      <div style={styles.chipsContainer}>
-        {periods.map((period) => (
-          <button
-            key={period}
+      {/* ── Card principal ──────────────────────── */}
+      <div style={styles.mainCard}>
+        <p style={styles.mainCardLabel}>Has bajado</p>
+        <p style={styles.mainCardNum}>{kgPerdidos} kg</p>
+        <div style={styles.progressBarBg}>
+          <div
             style={{
-              ...styles.chip,
-              ...(selectedPeriod === period ? styles.chipActive : {})
+              ...styles.progressBarFill,
+              width: `${Math.min((semanaActual / 12) * 100, 100)}%`,
             }}
-            onClick={() => setSelectedPeriod(period)}
+          />
+        </div>
+        <p style={styles.mainCardPercent}>
+          {((semanaActual / 12) * 100).toFixed(0)}% del programa completado
+        </p>
+      </div>
+
+      {/* ── Filtros ─────────────────────────────── */}
+      <div style={styles.filtros}>
+        {[
+          { id: '6sem', label: '6 semanas' },
+          { id: '3mes', label: '3 meses' },
+          { id: 'todo', label: 'Todo' },
+        ].map((f) => (
+          <button
+            key={f.id}
+            onClick={() => setFiltro(f.id)}
+            style={{
+              ...styles.filtroBtn,
+              ...(filtro === f.id ? styles.filtroBtnActive : {}),
+            }}
           >
-            {period}
+            {f.label}
           </button>
         ))}
       </div>
 
-      <button style={styles.addPesoButton} onClick={openPesoModal}>
+      {/* ── Gráfico ─────────────────────────────── */}
+      <div style={styles.chartContainer}>
+        {!pesoLoaded ? (
+          <p style={styles.loading}>Cargando gráfico...</p>
+        ) : datosGrafico.length === 0 ? (
+          <p style={styles.loading}>Registrá tu primer peso para ver el gráfico</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={datosGrafico}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eaf2eb" />
+              <XAxis
+                dataKey="fecha"
+                tick={{ fontSize: 11, fill: '#7a9e7e' }}
+                axisLine={{ stroke: '#eaf2eb' }}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#7a9e7e' }}
+                axisLine={{ stroke: '#eaf2eb' }}
+                domain={['dataMin - 1', 'dataMax + 1']}
+              />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: 12,
+                  border: 'none',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  fontFamily: 'Jost, sans-serif',
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="peso"
+                stroke="#3d5c41"
+                strokeWidth={3}
+                dot={{ fill: '#3d5c41', r: 5 }}
+                activeDot={{ fill: '#b8956a', r: 7 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Mini stats ──────────────────────────── */}
+      <div style={styles.statsRow}>
+        <div style={styles.statCard}>
+          <p style={styles.statEmoji}>🔥</p>
+          <p style={styles.statNum}>{racha}</p>
+          <p style={styles.statLabel}>Racha</p>
+        </div>
+        <div style={styles.statCard}>
+          <p style={styles.statEmoji}>📅</p>
+          <p style={styles.statNum}>{semanaActual}</p>
+          <p style={styles.statLabel}>Semanas</p>
+        </div>
+        <div style={styles.statCard}>
+          <p style={styles.statEmoji}>📊</p>
+          <p style={styles.statNum}>{registrosPeso.length}</p>
+          <p style={styles.statLabel}>Registros</p>
+        </div>
+      </div>
+
+      {/* ── Botón registrar peso ────────────────── */}
+      <button
+        onClick={() => setShowModal(true)}
+        style={styles.registrarBtn}
+      >
         ＋ Registrar peso de hoy
       </button>
 
-      <div style={styles.chartCard}>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-            <XAxis
-              dataKey="semana"
-              tick={{ fill: colors.sageDark, fontSize: 12, fontFamily: "'Jost', sans-serif" }}
-              axisLine={{ stroke: colors.sageDark, opacity: 0.3 }}
-              tickLine={{ stroke: colors.sageDark, opacity: 0.3 }}
-            />
-            <YAxis
-              tick={{ fill: colors.sageDark, fontSize: 12, fontFamily: "'Jost', sans-serif" }}
-              axisLine={{ stroke: colors.sageDark, opacity: 0.3 }}
-              tickLine={{ stroke: colors.sageDark, opacity: 0.3 }}
-              domain={yDomain}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Line
-              type="monotone"
-              dataKey="peso"
-              stroke={colors.sage}
-              strokeWidth={3}
-              dot={(props) => {
-                const { index } = props;
-                if (index === chartData.length - 1) {
-                  return (
-                    <circle
-                      cx={props.cx}
-                      cy={props.cy}
-                      r={5}
-                      fill={colors.sage}
-                      stroke="white"
-                      strokeWidth={2}
-                    />
-                  );
-                }
-                return null;
-              }}
-              activeDot={{ r: 6, fill: colors.sage }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {/* ── Modal ───────────────────────────────── */}
+      {showModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Registrar peso</h3>
 
-      <div style={styles.miniCardsContainer}>
-        <div style={styles.miniCard}>
-          <div style={styles.miniCardNumber}>12</div>
-          <div style={styles.miniCardLabel}>días racha</div>
-        </div>
-        <div style={styles.miniCard}>
-          <div style={styles.miniCardNumber}>6/12</div>
-          <div style={styles.miniCardLabel}>semanas</div>
-        </div>
-        <div style={styles.miniCard}>
-          <div style={styles.miniCardNumber}>94%</div>
-          <div style={styles.miniCardLabel}>adherencia</div>
-        </div>
-      </div>
-
-      <h2 style={styles.sectionTitle}>Registro semanal</h2>
-      <div style={styles.recordsList}>
-        {weeklyRecords.map((record, index) => (
-          <div
-            key={record.semana}
-            style={{
-              ...styles.recordItem,
-              ...(index === weeklyRecords.length - 1 ? styles.recordItemLast : {})
-            }}
-          >
-            <div style={styles.recordLeft}>
-              <div style={styles.recordWeek}>{record.semana}</div>
-              <div style={styles.recordDate}>{record.fecha}</div>
-            </div>
-            <div style={styles.recordRight}>
-              <div style={styles.recordPeso}>{record.peso} kg</div>
-              {record.perdido > 0 && (
-                <div style={styles.recordPerdido}>−{record.perdido} kg</div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {showPesoModal && (
-        <div
-          style={styles.modalOverlay}
-          onClick={(e) => e.target === e.currentTarget && closePesoModal()}
-        >
-          <div style={styles.modalBox}>
-            <h3 style={styles.modalTitle}>Registrar peso de hoy</h3>
+            <label style={styles.inputLabel}>Peso (kg)</label>
             <input
               type="number"
               step="0.1"
-              min="30"
-              max="300"
               placeholder="Ej: 72.5"
-              style={styles.modalInput}
-              value={nuevoPeso}
-              onChange={(e) => setNuevoPeso(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && savePeso()}
+              value={pesoInput}
+              onChange={(e) => setPesoInput(e.target.value)}
+              style={styles.input}
+              autoFocus
             />
-            <div style={styles.modalActions}>
-              <button style={styles.modalButtonCancel} onClick={closePesoModal}>
+
+            <label style={styles.inputLabel}>Semana (opcional)</label>
+            <input
+              type="number"
+              placeholder="Ej: 3"
+              value={semanaInput}
+              onChange={(e) => setSemanaInput(e.target.value)}
+              style={styles.input}
+            />
+
+            <div style={styles.modalButtons}>
+              <button
+                onClick={() => setShowModal(false)}
+                style={styles.cancelBtn}
+              >
                 Cancelar
               </button>
-              <button style={styles.modalButtonSave} onClick={savePeso}>
-                Guardar
+              <button
+                onClick={handleGuardarPeso}
+                disabled={guardando || !pesoInput}
+                style={{
+                  ...styles.saveBtn,
+                  opacity: guardando || !pesoInput ? 0.5 : 1,
+                }}
+              >
+                {guardando ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Spacer para BottomNav */}
+      <div style={{ height: 90 }} />
     </div>
   );
 }
 
-export default Progreso;
+// ══════════════════════════════════════════════════
+// ESTILOS
+// ══════════════════════════════════════════════════
+const styles = {
+  container: {
+    maxWidth: 390,
+    margin: '0 auto',
+    backgroundColor: '#f8f4ee',
+    minHeight: '100vh',
+    fontFamily: 'Jost, sans-serif',
+  },
+  header: {
+    background: 'linear-gradient(135deg, #3d5c41, #7a9e7e)',
+    padding: '40px 24px 30px',
+    borderRadius: '0 0 24px 24px',
+    color: 'white',
+  },
+  headerSub: {
+    fontSize: 14,
+    margin: 0,
+    opacity: 0.9,
+  },
+  headerTitle: {
+    fontSize: 24,
+    margin: '4px 0 0',
+    fontFamily: 'Playfair Display, serif',
+    fontWeight: 700,
+  },
+  mainCard: {
+    margin: '16px 16px 0',
+    padding: '20px',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    textAlign: 'center',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+  },
+  mainCardLabel: { margin: 0, fontSize: 13, color: '#7a9e7e' },
+  mainCardNum: {
+    margin: '4px 0 12px',
+    fontSize: 36,
+    fontWeight: 700,
+    color: '#3d5c41',
+    fontFamily: 'Playfair Display, serif',
+  },
+  progressBarBg: {
+    height: 8,
+    backgroundColor: '#eaf2eb',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#7a9e7e',
+    borderRadius: 4,
+    transition: 'width 0.5s ease',
+  },
+  mainCardPercent: {
+    margin: '8px 0 0',
+    fontSize: 12,
+    color: '#7a9e7e',
+  },
+  filtros: {
+    display: 'flex',
+    gap: 8,
+    margin: '16px 16px 0',
+    justifyContent: 'center',
+  },
+  filtroBtn: {
+    padding: '8px 16px',
+    backgroundColor: 'white',
+    border: '1.5px solid #eaf2eb',
+    borderRadius: 20,
+    fontSize: 13,
+    color: '#7a9e7e',
+    cursor: 'pointer',
+    fontFamily: 'Jost, sans-serif',
+    fontWeight: 500,
+  },
+  filtroBtnActive: {
+    backgroundColor: '#3d5c41',
+    borderColor: '#3d5c41',
+    color: 'white',
+  },
+  chartContainer: {
+    margin: '16px 16px 0',
+    padding: '16px 8px',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+  },
+  loading: {
+    fontSize: 14,
+    color: '#7a9e7e',
+    textAlign: 'center',
+    padding: 30,
+  },
+  statsRow: {
+    display: 'flex',
+    gap: 10,
+    margin: '16px 16px 0',
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: '14px 8px',
+    textAlign: 'center',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+  },
+  statEmoji: { fontSize: 22, margin: '0 0 4px' },
+  statNum: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: '#3d5c41',
+    margin: 0,
+  },
+  statLabel: { fontSize: 11, color: '#7a9e7e', margin: '2px 0 0' },
+  registrarBtn: {
+    display: 'block',
+    width: 'calc(100% - 32px)',
+    margin: '20px 16px 0',
+    padding: '16px',
+    backgroundColor: '#3d5c41',
+    color: 'white',
+    border: 'none',
+    borderRadius: 16,
+    fontSize: 16,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'Jost, sans-serif',
+    textAlign: 'center',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: 20,
+  },
+  modal: {
+    backgroundColor: 'white',
+    borderRadius: 24,
+    padding: '28px 24px',
+    maxWidth: 340,
+    width: '100%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: 'Playfair Display, serif',
+    color: '#3d5c41',
+    margin: '0 0 20px',
+    textAlign: 'center',
+  },
+  inputLabel: {
+    display: 'block',
+    fontSize: 13,
+    color: '#7a9e7e',
+    marginBottom: 6,
+    fontWeight: 500,
+  },
+  input: {
+    width: '100%',
+    padding: '12px 14px',
+    border: '2px solid #eaf2eb',
+    borderRadius: 12,
+    fontSize: 16,
+    fontFamily: 'Jost, sans-serif',
+    marginBottom: 16,
+    outline: 'none',
+    boxSizing: 'border-box',
+    color: '#3d5c41',
+  },
+  modalButtons: {
+    display: 'flex',
+    gap: 10,
+    marginTop: 8,
+  },
+  cancelBtn: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#f8f4ee',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#7a9e7e',
+    cursor: 'pointer',
+    fontFamily: 'Jost, sans-serif',
+  },
+  saveBtn: {
+    flex: 1,
+    padding: '12px',
+    backgroundColor: '#3d5c41',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 600,
+    color: 'white',
+    cursor: 'pointer',
+    fontFamily: 'Jost, sans-serif',
+  },
+};
