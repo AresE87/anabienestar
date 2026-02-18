@@ -36,6 +36,22 @@ body {
   position: relative;
 }
 
+/* Admin dashboard - full width */
+.app-container.admin-mode,
+.app-container.admin-mode #root {
+  max-width: 100%;
+  box-shadow: none;
+}
+
+body.admin-mode {
+  background: var(--color-cream);
+}
+
+body.admin-mode #root {
+  max-width: 100%;
+  box-shadow: none;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-title);
   font-weight: 600;
