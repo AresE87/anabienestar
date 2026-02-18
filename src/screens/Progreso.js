@@ -283,7 +283,7 @@ function Progreso() {
               stroke={colors.sage}
               strokeWidth={3}
               dot={(props) => {
-                const { index, payload } = props;
+                const { index } = props;
                 // Solo mostrar punto en el último elemento
                 if (index === chartData.length - 1) {
                   return (
