@@ -1,66 +1,75 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 
-const NOTAS_SESION_KEY = 'notas_sesion';
+const USER_ID = '00000000-0000-0000-0000-000000000001';
 
-const defaultNotes = [
-  'Dudas sobre el plan de esta semana',
-  'Quiero ajustar los horarios de comida',
-  'Noté cambios en mi energía'
-];
-
-function loadNotasSesion() {
-  try {
-    const raw = localStorage.getItem(NOTAS_SESION_KEY);
-    if (!raw) return defaultNotes;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : defaultNotes;
-  } catch {
-    return defaultNotes;
-  }
-}
-
-function saveNotasSesion(notas) {
-  try {
-    localStorage.setItem(NOTAS_SESION_KEY, JSON.stringify(notas));
-  } catch (_) {}
+function getTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function Citas() {
-  const [notes, setNotes] = useState(loadNotasSesion);
+  const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
   const [showNewNote, setShowNewNote] = useState(false);
+  const [loading, setLoading] = useState(true);
 
+  // Cargar notas al montar
   useEffect(() => {
-    saveNotasSesion(notes);
-  }, [notes]);
+    const loadNotas = async () => {
+      setLoading(true);
+      const fecha = getTodayKey();
+      
+      try {
+        const { data, error } = await supabase
+          .from('notas_sesion')
+          .select('nota')
+          .eq('usuario_id', USER_ID)
+          .eq('fecha', fecha)
+          .order('created_at', { ascending: true });
 
-  // Colores (iguales a Home.js)
-  const colors = {
-    sage: '#7a9e7e',
-    sageDark: '#3d5c41',
-    cream: '#f8f4ee',
-    gold: '#b8956a'
-  };
+        if (!error && data) {
+          setNotes(data.map((row) => row.nota));
+        }
+      } catch (error) {
+        console.error('Error cargando notas:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Datos del calendario semanal
-  const weekDays = [
-    { day: 'Lun', date: 16, hasAppointment: false },
-    { day: 'Mar', date: 17, hasAppointment: false },
-    { day: 'Mié', date: 18, hasAppointment: false, isToday: true },
-    { day: 'Jue', date: 19, hasAppointment: true },
-    { day: 'Vie', date: 20, hasAppointment: false },
-    { day: 'Sáb', date: 21, hasAppointment: true },
-    { day: 'Dom', date: 22, hasAppointment: false }
-  ];
+    loadNotas();
+  }, []);
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     const text = newNote.trim();
-    if (text) {
+    if (!text) {
+      setShowNewNote(true);
+      return;
+    }
+
+    const fecha = getTodayKey();
+    
+    try {
+      const { error } = await supabase
+        .from('notas_sesion')
+        .insert({
+          usuario_id: USER_ID,
+          fecha: fecha,
+          nota: text
+        });
+
+      if (error) {
+        console.error('Error guardando nota:', error);
+        return;
+      }
+
+      // Agregar nota al estado local
       setNotes([...notes, text]);
       setNewNote('');
       setShowNewNote(false);
-    } else {
-      setShowNewNote(true);
+    } catch (error) {
+      console.error('Error guardando nota:', error);
     }
   };
 
@@ -71,6 +80,14 @@ function Citas() {
     }
   };
 
+  // Colores (iguales a Home.js)
+  const colors = {
+    sage: '#7a9e7e',
+    sageDark: '#3d5c41',
+    cream: '#f8f4ee',
+    gold: '#b8956a'
+  };
+
   // Estilos
   const styles = {
     container: {
@@ -78,6 +95,14 @@ function Citas() {
       minHeight: 'calc(100vh - 80px)',
       background: colors.cream,
       paddingBottom: '100px'
+    },
+    loadingText: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      color: colors.sageDark,
+      opacity: 0.7,
+      textAlign: 'center',
+      padding: '2rem'
     },
     header: {
       background: colors.cream,
@@ -296,6 +321,25 @@ function Citas() {
       zIndex: 10
     }
   };
+
+  // Datos del calendario semanal
+  const weekDays = [
+    { day: 'Lun', date: 16, hasAppointment: false },
+    { day: 'Mar', date: 17, hasAppointment: false },
+    { day: 'Mié', date: 18, hasAppointment: false, isToday: true },
+    { day: 'Jue', date: 19, hasAppointment: true },
+    { day: 'Vie', date: 20, hasAppointment: false },
+    { day: 'Sáb', date: 21, hasAppointment: true },
+    { day: 'Dom', date: 22, hasAppointment: false }
+  ];
+
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loadingText}>Cargando...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>

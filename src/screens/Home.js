@@ -1,104 +1,133 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../supabaseClient';
 
 const CHECKLIST_IDS = ['actividad', 'agua', 'respiracion', 'desayuno', 'momento'];
+const USER_ID = '00000000-0000-0000-0000-000000000001';
 
 function getTodayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function loadChecklistHoy() {
-  try {
-    const key = `checklist_hoy_${getTodayKey()}`;
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const out = {};
-    CHECKLIST_IDS.forEach((id) => {
-      out[id] = !!parsed[id];
-    });
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-function saveChecklistHoy(data) {
-  try {
-    const key = `checklist_hoy_${getTodayKey()}`;
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (_) {}
-}
-
-function loadMoodHoy() {
-  try {
-    const key = 'mood_hoy';
-    const stored = localStorage.getItem(key);
-    const date = getTodayKey();
-    if (!stored) return null;
-    const { value, date: savedDate } = JSON.parse(stored);
-    return savedDate === date ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveMoodHoy(value) {
-  try {
-    localStorage.setItem('mood_hoy', JSON.stringify({ value, date: getTodayKey() }));
-  } catch (_) {}
-}
-
-function loadDifficultDayHoy() {
-  try {
-    const raw = localStorage.getItem('difficult_day_hoy');
-    if (!raw) return false;
-    const { date } = JSON.parse(raw);
-    return date === getTodayKey();
-  } catch {
-    return false;
-  }
-}
-
-function setDifficultDayHoy() {
-  try {
-    localStorage.setItem('difficult_day_hoy', JSON.stringify({ date: getTodayKey() }));
-  } catch (_) {}
-}
-
 const defaultChecked = Object.fromEntries(CHECKLIST_IDS.map((id) => [id, false]));
 
 function Home() {
-  const [checkedItems, setCheckedItems] = useState(() => {
-    const saved = loadChecklistHoy();
-    return saved ? { ...defaultChecked, ...saved } : defaultChecked;
-  });
-
-  const [selectedEmotion, setSelectedEmotion] = useState(() => loadMoodHoy());
+  const [checkedItems, setCheckedItems] = useState(defaultChecked);
+  const [selectedEmotion, setSelectedEmotion] = useState(null);
   const [showDifficultModal, setShowDifficultModal] = useState(false);
-  const [difficultDayActive, setDifficultDayActive] = useState(loadDifficultDayHoy());
+  const [difficultDayActive, setDifficultDayActive] = useState(false);
+  const [loading, setLoading] = useState(true);
 
+  // Cargar datos iniciales
   useEffect(() => {
-    saveChecklistHoy(checkedItems);
-  }, [checkedItems]);
+    const loadData = async () => {
+      setLoading(true);
+      const fecha = getTodayKey();
 
-  const toggleCheck = useCallback((item) => {
-    setCheckedItems((prev) => ({ ...prev, [item]: !prev[item] }));
+      try {
+        // Cargar checklist
+        const { data: checklistData, error: checklistError } = await supabase
+          .from('checklist_items')
+          .select('item, completado')
+          .eq('usuario_id', USER_ID)
+          .eq('fecha', fecha);
+
+        if (!checklistError && checklistData) {
+          const items = { ...defaultChecked };
+          checklistData.forEach((row) => {
+            if (CHECKLIST_IDS.includes(row.item)) {
+              items[row.item] = row.completado;
+            }
+          });
+          setCheckedItems(items);
+        }
+
+        // Cargar estado de ánimo
+        const { data: moodData, error: moodError } = await supabase
+          .from('estados_animo')
+          .select('mood')
+          .eq('usuario_id', USER_ID)
+          .eq('fecha', fecha)
+          .single();
+
+        if (!moodError && moodData) {
+          setSelectedEmotion(moodData.mood);
+        }
+
+        // Cargar día difícil
+        const { data: difficultData, error: difficultError } = await supabase
+          .from('dias_dificiles')
+          .select('id')
+          .eq('usuario_id', USER_ID)
+          .eq('fecha', fecha)
+          .single();
+
+        if (!difficultError && difficultData) {
+          setDifficultDayActive(true);
+        }
+      } catch (error) {
+        console.error('Error cargando datos:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
   }, []);
 
-  const handleMoodSelect = useCallback((id) => {
+  const toggleCheck = useCallback(async (item) => {
+    const newValue = !checkedItems[item];
+    setCheckedItems((prev) => ({ ...prev, [item]: newValue }));
+
+    const fecha = getTodayKey();
+    const { error } = await supabase.from('checklist_items').upsert({
+      usuario_id: USER_ID,
+      fecha: fecha,
+      item: item,
+      completado: newValue
+    });
+
+    if (error) {
+      console.error('Error guardando checklist:', error);
+      // Revertir cambio en caso de error
+      setCheckedItems((prev) => ({ ...prev, [item]: !newValue }));
+    }
+  }, [checkedItems]);
+
+  const handleMoodSelect = useCallback(async (id) => {
     setSelectedEmotion(id);
-    saveMoodHoy(id);
+
+    const fecha = getTodayKey();
+    const { error } = await supabase.from('estados_animo').upsert({
+      usuario_id: USER_ID,
+      fecha: fecha,
+      mood: id
+    });
+
+    if (error) {
+      console.error('Error guardando estado de ánimo:', error);
+      setSelectedEmotion(null);
+    }
   }, []);
 
   const openDifficultModal = useCallback(() => {
     setShowDifficultModal(true);
   }, []);
 
-  const closeDifficultModal = useCallback(() => {
+  const closeDifficultModal = useCallback(async () => {
     setShowDifficultModal(false);
     setDifficultDayActive(true);
-    setDifficultDayHoy();
+
+    const fecha = getTodayKey();
+    const { error } = await supabase.from('dias_dificiles').upsert({
+      usuario_id: USER_ID,
+      fecha: fecha
+    });
+
+    if (error) {
+      console.error('Error guardando día difícil:', error);
+      setDifficultDayActive(false);
+    }
   }, []);
 
   // Colores
@@ -130,6 +159,14 @@ function Home() {
       fontWeight: 400,
       margin: 0,
       lineHeight: 1.3
+    },
+    loadingText: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      color: colors.sageDark,
+      opacity: 0.7,
+      textAlign: 'center',
+      padding: '2rem'
     },
     streakCard: {
       background: colors.sageDark,
@@ -391,6 +428,14 @@ function Home() {
     { emoji: '😔', id: 'sad' },
     { emoji: '🔥', id: 'fire' }
   ];
+
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loadingText}>Cargando...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>

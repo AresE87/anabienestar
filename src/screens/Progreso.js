@@ -1,37 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { supabase } from '../supabaseClient';
 
-const REGISTROS_KEY = 'registros_peso';
-
-const defaultRegistros = [
-  { fecha: '2026-01-15', peso: 78 },
-  { fecha: '2026-01-22', peso: 76.5 },
-  { fecha: '2026-01-29', peso: 75.3 },
-  { fecha: '2026-02-05', peso: 74.4 },
-  { fecha: '2026-02-12', peso: 73.3 },
-  { fecha: '2026-02-19', peso: 72.5 }
-];
+const USER_ID = '00000000-0000-0000-0000-000000000001';
 
 function getTodayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function loadRegistros() {
-  try {
-    const raw = localStorage.getItem(REGISTROS_KEY);
-    if (!raw) return defaultRegistros;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultRegistros;
-  } catch {
-    return defaultRegistros;
-  }
-}
-
-function saveRegistros(arr) {
-  try {
-    localStorage.setItem(REGISTROS_KEY, JSON.stringify(arr));
-  } catch (_) {}
 }
 
 function formatFechaShort(str) {
@@ -42,7 +17,8 @@ function formatFechaShort(str) {
 }
 
 function buildChartAndRecords(registros) {
-  const last6 = registros.slice(-6);
+  const sorted = [...registros].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  const last6 = sorted.slice(-6);
   const firstPeso = last6.length ? last6[0].peso : 0;
   const chartData = last6.map((r, i) => ({
     semana: `S${i + 1}`,
@@ -59,13 +35,34 @@ function buildChartAndRecords(registros) {
 
 function Progreso() {
   const [selectedPeriod, setSelectedPeriod] = useState('6 semanas');
-  const [registros, setRegistros] = useState(loadRegistros);
+  const [registros, setRegistros] = useState([]);
   const [showPesoModal, setShowPesoModal] = useState(false);
   const [nuevoPeso, setNuevoPeso] = useState('');
+  const [loading, setLoading] = useState(true);
 
+  // Cargar registros al montar
   useEffect(() => {
-    saveRegistros(registros);
-  }, [registros]);
+    const loadRegistros = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('registros_peso')
+          .select('fecha, peso')
+          .eq('usuario_id', USER_ID)
+          .order('fecha', { ascending: true });
+
+        if (!error && data) {
+          setRegistros(data);
+        }
+      } catch (error) {
+        console.error('Error cargando registros:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadRegistros();
+  }, []);
 
   const { chartData, weeklyRecords } = useMemo(() => buildChartAndRecords(registros), [registros]);
 
@@ -79,14 +76,41 @@ function Progreso() {
     setNuevoPeso('');
   };
 
-  const savePeso = () => {
+  const savePeso = async () => {
     const num = parseFloat(nuevoPeso.replace(',', '.').trim());
     if (Number.isNaN(num) || num <= 0 || num >= 300) return;
-    const today = getTodayKey();
-    const next = registros.filter((r) => r.fecha !== today);
-    next.push({ fecha: today, peso: num });
-    setRegistros(next);
-    closePesoModal();
+
+    const fecha = getTodayKey();
+    
+    try {
+      const { error } = await supabase
+        .from('registros_peso')
+        .upsert({
+          usuario_id: USER_ID,
+          fecha: fecha,
+          peso: num
+        });
+
+      if (error) {
+        console.error('Error guardando peso:', error);
+        return;
+      }
+
+      // Recargar registros
+      const { data, error: reloadError } = await supabase
+        .from('registros_peso')
+        .select('fecha, peso')
+        .eq('usuario_id', USER_ID)
+        .order('fecha', { ascending: true });
+
+      if (!reloadError && data) {
+        setRegistros(data);
+      }
+
+      closePesoModal();
+    } catch (error) {
+      console.error('Error guardando peso:', error);
+    }
   };
 
   // Colores (iguales a Home.js)
@@ -103,6 +127,14 @@ function Progreso() {
       padding: '1.25rem 1.25rem 1rem',
       minHeight: 'calc(100vh - 80px)',
       background: colors.cream
+    },
+    loadingText: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      color: colors.sageDark,
+      opacity: 0.7,
+      textAlign: 'center',
+      padding: '2rem'
     },
     header: {
       background: `linear-gradient(135deg, ${colors.sageDark} 0%, ${colors.sage} 100%)`,
@@ -373,6 +405,14 @@ function Progreso() {
   const pesoMin = chartData.length ? Math.min(...chartData.map((d) => d.peso)) - 2 : 70;
   const pesoMax = chartData.length ? Math.max(...chartData.map((d) => d.peso)) + 2 : 80;
   const yDomain = [Math.max(40, Math.floor(pesoMin)), Math.ceil(pesoMax)];
+
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loadingText}>Cargando...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
