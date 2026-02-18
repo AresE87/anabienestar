@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 
 // ── Datos estáticos ───────────────────────────────
 const CHECKLIST_ITEMS = [
@@ -27,6 +28,7 @@ const RECETA_HOY = {
 };
 
 export default function Home() {
+  const { logout } = useAuth();
   const {
     checklist,
     checklistLoaded,
@@ -45,8 +47,28 @@ export default function Home() {
     <div style={styles.container}>
       {/* ── Header ──────────────────────────────── */}
       <div style={styles.header}>
-        <p style={styles.greeting}>Hola, hermosa 🌿</p>
-        <h1 style={styles.title}>Tu día empieza bien</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <p style={styles.greeting}>Hola, hermosa 🌿</p>
+            <h1 style={styles.title}>Tu día empieza bien</h1>
+          </div>
+          <button
+            type="button"
+            onClick={() => logout()}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontFamily: "'Jost', sans-serif",
+              fontSize: '0.8rem',
+              color: 'var(--color-dark-green)',
+              opacity: 0.7,
+              cursor: 'pointer',
+              padding: '0.25rem 0',
+            }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
 
       {/* ── Racha ───────────────────────────────── */}

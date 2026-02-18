@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import AdminMaterial from '../components/AdminMaterial';
 import AdminVideos from '../components/AdminVideos';
 
@@ -91,6 +92,7 @@ function getFechaHoy() {
 }
 
 function Admin() {
+  const { logout } = useAuth();
   const [activeTab, setActiveTab] = useState('resumen');
   const [selectedClienta, setSelectedClienta] = useState(null);
   const [editingFicha, setEditingFicha] = useState(false);
@@ -127,7 +129,9 @@ function Admin() {
       position: 'fixed',
       height: '100vh',
       overflowY: 'auto',
-      zIndex: 100
+      zIndex: 100,
+      display: 'flex',
+      flexDirection: 'column'
     },
     logo: {
       fontFamily: "'Playfair Display', Georgia, serif",
@@ -181,6 +185,25 @@ function Admin() {
     menuItemActive: {
       background: colors.sage,
       fontWeight: 600
+    },
+    logoutButton: {
+      marginTop: 'auto',
+      paddingTop: '1rem',
+      borderTop: '1px solid rgba(255,255,255,0.2)'
+    },
+    logoutBtn: {
+      width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      padding: '0.75rem',
+      borderRadius: '8px',
+      border: 'none',
+      background: 'transparent',
+      color: 'rgba(255,255,255,0.9)',
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.9rem',
+      cursor: 'pointer'
     },
     contentArea: {
       marginLeft: '210px',
@@ -315,6 +338,9 @@ function Admin() {
       cursor: 'pointer',
       transition: 'all 0.2s',
       borderBottom: `1px solid ${colors.cream}`
+    },
+    tableRowHover: {
+      background: colors.cream
     },
     tableCell: {
       padding: '1rem',
@@ -826,9 +852,77 @@ function Admin() {
     </>
   );
 
-  const renderMaterial = () => <AdminMaterial />;
+  const renderMaterial = () => (
+    <>
+      <div style={styles.topbar}>
+        <h1 style={styles.topbarTitle}>Material</h1>
+        <button style={styles.buttonPrimary}>＋ Subir material</button>
+      </div>
+      <div style={styles.section}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.tableHeader}>Título</th>
+              <th style={styles.tableHeader}>Páginas</th>
+              <th style={styles.tableHeader}>Fecha</th>
+              <th style={styles.tableHeader}>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={styles.tableRow}>
+              <td style={styles.tableCell}>Método Livianas — Guía Completa</td>
+              <td style={styles.tableCell}>48</td>
+              <td style={styles.tableCell}>15 Feb 2026</td>
+              <td style={styles.tableCell}>
+                <label style={styles.checkboxLabel}>
+                  <input type="checkbox" defaultChecked />
+                  Visible
+                </label>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 
-  const renderVideos = () => <AdminVideos />;
+  const renderVideos = () => (
+    <>
+      <div style={styles.topbar}>
+        <h1 style={styles.topbarTitle}>Videos</h1>
+        <button style={styles.buttonPrimary}>＋ Agregar video</button>
+      </div>
+      <div style={styles.section}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+          {[
+            { titulo: 'Respiración guiada', categoria: 'Respiración', duracion: '10 min', emoji: '🧘' },
+            { titulo: 'Motivación diaria', categoria: 'Motivación', duracion: '5 min', emoji: '💪' },
+            { titulo: 'Receta del día', categoria: 'Recetas', duracion: '15 min', emoji: '🍳' }
+          ].map((v, i) => (
+            <div
+              key={i}
+              style={{
+                background: colors.cream,
+                borderRadius: '14px',
+                padding: '1.5rem',
+                textAlign: 'center'
+              }}
+            >
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>{v.emoji}</div>
+              <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{v.titulo}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '1rem' }}>
+                {v.categoria} · {v.duracion}
+              </div>
+              <label style={styles.checkboxLabel}>
+                <input type="checkbox" defaultChecked />
+                Visible
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
 
   const renderNotificaciones = () => (
     <>
@@ -1104,6 +1198,12 @@ function Admin() {
             </div>
           ))}
         </nav>
+        <div style={{ ...styles.logoutButton, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <button type="button" style={styles.logoutBtn} onClick={() => logout()}>
+            <span>🚪</span>
+            <span>Cerrar sesión</span>
+          </button>
+        </div>
       </div>
       <div style={styles.contentArea}>{renderContent()}</div>
     </div>

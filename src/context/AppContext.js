@@ -1,15 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
-
-// ID hardcodeado hasta implementar auth
-const USER_ID = '00000000-0000-0000-0000-000000000001';
 
 // Helper: fecha de hoy en formato YYYY-MM-DD
 const hoy = () => new Date().toISOString().split('T')[0];
 
 export function AppProvider({ children }) {
+  const { perfil } = useAuth();
+  const userId = perfil?.id ?? null;
+
   // ── Checklist ──────────────────────────────────
   const [checklist, setChecklist] = useState({
     actividad: false,
@@ -32,23 +33,30 @@ export function AppProvider({ children }) {
   const [racha, setRacha] = useState(0);
 
   // ══════════════════════════════════════════════
-  // FETCH INICIAL — solo una vez al montar el Provider
+  // FETCH INICIAL — solo cuando hay userId (usuario logueado)
   // ══════════════════════════════════════════════
 
   useEffect(() => {
+    if (!userId) {
+      setChecklistLoaded(true);
+      setMoodLoaded(true);
+      setPesoLoaded(true);
+      return;
+    }
     fetchChecklist();
     fetchMood();
     fetchRegistrosPeso();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId]);
 
   // ── Fetch Checklist ────────────────────────────
   const fetchChecklist = async () => {
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('checklist_items')
         .select('item, completado')
-        .eq('usuario_id', USER_ID)
+        .eq('usuario_id', userId)
         .eq('fecha', hoy());
 
       if (error) throw error;
@@ -71,16 +79,14 @@ export function AppProvider({ children }) {
 
   // ── Toggle Checklist (optimistic update) ───────
   const toggleChecklistItem = useCallback(async (item) => {
-    // 1. Cambiar estado local INMEDIATAMENTE
+    if (!userId) return;
     setChecklist((prev) => {
       const nuevoValor = !prev[item];
-
-      // 2. Upsert a Supabase en background (no await)
       supabase
         .from('checklist_items')
         .upsert(
           {
-            usuario_id: USER_ID,
+            usuario_id: userId,
             fecha: hoy(),
             item: item,
             completado: nuevoValor,
@@ -90,18 +96,18 @@ export function AppProvider({ children }) {
         .then(({ error }) => {
           if (error) console.error('Error guardando checklist:', error);
         });
-
       return { ...prev, [item]: nuevoValor };
     });
-  }, []);
+  }, [userId]);
 
   // ── Fetch Mood ─────────────────────────────────
   const fetchMood = async () => {
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('estados_animo')
         .select('mood')
-        .eq('usuario_id', USER_ID)
+        .eq('usuario_id', userId)
         .eq('fecha', hoy())
         .maybeSingle();
 
@@ -117,32 +123,32 @@ export function AppProvider({ children }) {
   // ── Set Mood (optimistic update) ───────────────
   const setMood = useCallback(async (nuevoMood) => {
     setMoodState(nuevoMood);
-
+    if (!userId) return;
     try {
       const { error } = await supabase
         .from('estados_animo')
         .upsert(
           {
-            usuario_id: USER_ID,
+            usuario_id: userId,
             fecha: hoy(),
             mood: nuevoMood,
           },
           { onConflict: 'usuario_id,fecha' }
         );
-
       if (error) console.error('Error guardando mood:', error);
     } catch (err) {
       console.error('Error guardando mood:', err);
     }
-  }, []);
+  }, [userId]);
 
   // ── Fetch Registros de Peso ────────────────────
   const fetchRegistrosPeso = async () => {
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('registros_peso')
         .select('*')
-        .eq('usuario_id', USER_ID)
+        .eq('usuario_id', userId)
         .order('fecha', { ascending: true });
 
       if (error) throw error;
@@ -156,8 +162,9 @@ export function AppProvider({ children }) {
 
   // ── Registrar Peso Nuevo ───────────────────────
   const registrarPeso = useCallback(async (peso, semana) => {
+    if (!userId) return { success: false, error: 'No hay usuario' };
     const nuevoPeso = {
-      usuario_id: USER_ID,
+      usuario_id: userId,
       peso: parseFloat(peso),
       semana: semana || null,
       fecha: hoy(),
@@ -188,7 +195,7 @@ export function AppProvider({ children }) {
       setRegistrosPeso((prev) => prev.filter((r) => r.id !== tempId));
       return { success: false, error: err };
     }
-  }, []);
+  }, [userId]);
 
   // ── Calcular racha ─────────────────────────────
   useEffect(() => {
@@ -217,7 +224,7 @@ export function AppProvider({ children }) {
 
     // Utils
     racha,
-    userId: USER_ID,
+    userId,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

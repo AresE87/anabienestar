@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-
-const USER_ID = '00000000-0000-0000-0000-000000000001';
+import { useApp } from '../context/AppContext';
 
 function getTodayKey() {
   const d = new Date();
@@ -9,22 +8,26 @@ function getTodayKey() {
 }
 
 function Citas() {
+  const { userId } = useApp();
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
   const [showNewNote, setShowNewNote] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Cargar notas al montar
+  // Cargar notas al montar (solo si hay userId)
   useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     const loadNotas = async () => {
       setLoading(true);
       const fecha = getTodayKey();
-      
       try {
         const { data, error } = await supabase
           .from('notas_sesion')
           .select('texto')
-          .eq('usuario_id', USER_ID)
+          .eq('usuario_id', userId)
           .eq('fecha', fecha)
           .order('created_at', { ascending: true });
 
@@ -37,9 +40,8 @@ function Citas() {
         setLoading(false);
       }
     };
-
     loadNotas();
-  }, []);
+  }, [userId]);
 
   const handleAddNote = async () => {
     const text = newNote.trim();
@@ -47,14 +49,14 @@ function Citas() {
       setShowNewNote(true);
       return;
     }
+    if (!userId) return;
 
     const fecha = getTodayKey();
-    
     try {
       const { error } = await supabase
         .from('notas_sesion')
         .insert({
-          usuario_id: USER_ID,
+          usuario_id: userId,
           texto: text
         });
 
