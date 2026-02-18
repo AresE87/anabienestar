@@ -1,13 +1,122 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Anabienestar Integral - Design system */
+:root {
+  --color-sage: #7a9e7e;
+  --color-dark-green: #3d5c41;
+  --color-cream: #f8f4ee;
+  --color-gold: #b8956a;
+  --font-title: 'Playfair Display', Georgia, serif;
+  --font-body: 'Jost', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--color-dark-green);
+  color: var(--color-dark-green);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+#root {
+  width: 100%;
+  max-width: 390px;
+  min-height: 100vh;
+  background: var(--color-cream);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-title);
+  font-weight: 600;
+  margin: 0;
+}
+
+a {
+  color: var(--color-dark-green);
+  text-decoration: none;
+}
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+.app-container {
+  min-height: 100vh;
+  padding-bottom: 80px;
+}
+
+.screen {
+  padding: 1.25rem 1.25rem 1rem;
+  min-height: calc(100vh - 80px);
+}
+
+.screen-title {
+  font-family: var(--font-title);
+  font-size: 1.5rem;
+  color: var(--color-dark-green);
+  margin-bottom: 1rem;
+}
+
+/* Bottom navigation */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 390px;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: var(--color-cream);
+  border-top: 1px solid rgba(61, 92, 65, 0.15);
+  padding: 0.5rem 0 max(0.5rem, env(safe-area-inset-bottom));
+  z-index: 100;
+  box-shadow: 0 -2px 12px rgba(61, 92, 65, 0.08);
+}
+
+.bottom-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--color-dark-green);
+  opacity: 0.6;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.bottom-nav__item:hover,
+.bottom-nav__item:focus {
+  opacity: 0.9;
+}
+
+.bottom-nav__item--active {
+  opacity: 1;
+  color: var(--color-sage);
+}
+
+.bottom-nav__icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.bottom-nav__label {
+  font-family: var(--font-body);
 }
