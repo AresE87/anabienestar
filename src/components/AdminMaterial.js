@@ -64,18 +64,34 @@ export default function AdminMaterial() {
       visible: form.visible,
     };
     try {
+      let result;
       if (editando) {
-        const { error } = await supabase.from('material').update(datos).eq('id', editando);
-        if (error) throw error;
+        result = await supabase.from('material').update(datos).eq('id', editando);
       } else {
-        const { error } = await supabase.from('material').insert(datos);
-        if (error) throw error;
+        result = await supabase.from('material').insert(datos);
       }
-      await fetchMateriales();
-      resetForm();
+      console.log('Resultado guardar:', result);
+      if (result.error) {
+        console.error('Error Supabase:', result.error);
+        alert('Error: ' + result.error.message);
+        setGuardando(false);
+        return;
+      }
+      const { data: nuevos, error: fetchError } = await supabase
+        .from('material')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (fetchError) {
+        console.error('Error fetch:', fetchError);
+      } else {
+        setMateriales(nuevos || []);
+      }
+      setForm({ titulo: '', descripcion: '', paginas: '', url_pdf: '', para_todas: true, visible: true });
+      setEditando(null);
+      setShowForm(false);
     } catch (err) {
       console.error('Error guardando:', err);
-      alert('Error al guardar. Intentá de nuevo.');
+      alert('Error al guardar: ' + err.message);
     } finally {
       setGuardando(false);
     }
