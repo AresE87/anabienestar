@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import AdminMaterial from '../components/AdminMaterial';
 import AdminVideos from '../components/AdminVideos';
+import AdminClientas from '../components/AdminClientas';
+import AdminFichas from '../components/AdminFichas';
 
 const colors = {
   sageDark: '#3d5c41',
@@ -94,9 +96,6 @@ function getFechaHoy() {
 function Admin() {
   const { logout } = useAuth();
   const [activeTab, setActiveTab] = useState('resumen');
-  const [selectedClienta, setSelectedClienta] = useState(null);
-  const [editingFicha, setEditingFicha] = useState(false);
-  const [searchClientas, setSearchClientas] = useState('');
 
   const menuItems = [
     { id: 'resumen', label: 'Resumen', icon: '📊' },
@@ -108,10 +107,6 @@ function Admin() {
     { id: 'agenda', label: 'Agenda', icon: '📅' },
     { id: 'configuracion', label: 'Configuración', icon: '⚙️' }
   ];
-
-  const filteredClientas = mockClientas.filter(c =>
-    c.nombre.toLowerCase().includes(searchClientas.toLowerCase())
-  );
 
   const styles = {
     adminContainer: {
@@ -560,10 +555,7 @@ function Admin() {
                   style={styles.tableRow}
                   onMouseEnter={(e) => (e.currentTarget.style.background = colors.cream)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  onClick={() => {
-                    setActiveTab('clientas');
-                    setSelectedClienta(c);
-                  }}
+                  onClick={() => setActiveTab('clientas')}
                 >
                   <td style={styles.tableCell}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -620,237 +612,8 @@ function Admin() {
     </>
   );
 
-  const renderClientas = () => (
-    <>
-      <div style={styles.topbar}>
-        <h1 style={styles.topbarTitle}>Clientas</h1>
-      </div>
-
-      <div style={styles.twoColumns}>
-        <div>
-          <input
-            type="text"
-            placeholder="Buscar clienta..."
-            style={styles.searchInput}
-            value={searchClientas}
-            onChange={(e) => setSearchClientas(e.target.value)}
-          />
-          <div style={styles.section}>
-            {filteredClientas.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  ...styles.tableRow,
-                  padding: '1rem',
-                  marginBottom: '0.5rem',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  background: selectedClienta?.id === c.id ? colors.cream : 'white'
-                }}
-                onClick={() => setSelectedClienta(c)}
-                onMouseEnter={(e) => {
-                  if (selectedClienta?.id !== c.id) {
-                    e.currentTarget.style.background = colors.cream;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedClienta?.id !== c.id) {
-                    e.currentTarget.style.background = 'white';
-                  }
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '1.5rem' }}>{c.avatar}</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontFamily: "'Jost', sans-serif" }}>
-                      {c.nombre}
-                    </div>
-                    <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                      Semana {c.semana}/{c.semanasTotal}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {selectedClienta && (
-          <div style={styles.profileCard}>
-            <div style={styles.profileAvatar}>{selectedClienta.avatar}</div>
-            <div style={styles.profileName}>{selectedClienta.nombre}</div>
-            <button
-              style={{ ...styles.buttonPrimary, width: '100%', marginBottom: '1.5rem' }}
-              onClick={() => setEditingFicha(!editingFicha)}
-            >
-              {editingFicha ? 'Guardar cambios' : 'Editar ficha'}
-            </button>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Fecha de inicio</div>
-              <div style={styles.profileValue}>{formatFecha(selectedClienta.fechaInicio)}</div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Objetivo</div>
-              <div style={styles.profileValue}>
-                {editingFicha ? (
-                  <input
-                    type="number"
-                    defaultValue={selectedClienta.objetivo}
-                    style={styles.input}
-                  />
-                ) : (
-                  `${selectedClienta.objetivo} kg`
-                )}
-              </div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Peso inicial / Actual</div>
-              <div style={styles.profileValue}>
-                {editingFicha ? (
-                  <>
-                    <input
-                      type="number"
-                      defaultValue={selectedClienta.pesoInicial}
-                      style={styles.input}
-                      placeholder="Peso inicial"
-                    />
-                    <input
-                      type="number"
-                      defaultValue={selectedClienta.pesoActual}
-                      style={styles.input}
-                      placeholder="Peso actual"
-                    />
-                  </>
-                ) : (
-                  `${selectedClienta.pesoInicial} kg / ${selectedClienta.pesoActual} kg`
-                )}
-              </div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Progreso</div>
-              <div style={styles.progressBar}>
-                <div
-                  style={{
-                    ...styles.progressFill,
-                    width: `${selectedClienta.progreso}%`
-                  }}
-                />
-              </div>
-              <div style={{ ...styles.profileValue, marginTop: '0.5rem' }}>
-                {selectedClienta.progreso}% ·{' '}
-                {(selectedClienta.pesoInicial - selectedClienta.pesoActual).toFixed(1)} kg
-              </div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Restricciones alimentarias</div>
-              <div style={styles.profileValue}>{selectedClienta.restricciones.join(', ')}</div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Nivel de actividad</div>
-              <div style={styles.profileValue}>{selectedClienta.nivelActividad}</div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Horario de comidas</div>
-              <div style={styles.profileValue}>{selectedClienta.horarioComidas}</div>
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Notas de Karina</div>
-              {editingFicha ? (
-                <textarea
-                  defaultValue={selectedClienta.notasKarina}
-                  style={styles.textarea}
-                />
-              ) : (
-                <div style={styles.profileValue}>{selectedClienta.notasKarina}</div>
-              )}
-            </div>
-
-            <div style={styles.profileField}>
-              <div style={styles.profileLabel}>Notas de la clienta para próxima sesión</div>
-              <div style={styles.profileValue}>
-                {selectedClienta.notasClienta.length > 0 ? (
-                  <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-                    {selectedClienta.notasClienta.map((n, i) => (
-                      <li key={i} style={{ marginBottom: '0.5rem' }}>
-                        {n}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  'Sin notas'
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
-
-  const renderFichas = () => (
-    <>
-      <div style={styles.topbar}>
-        <h1 style={styles.topbarTitle}>Fichas de clientas</h1>
-      </div>
-      <div style={styles.twoColumns}>
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Fichas existentes</h2>
-          {mockClientas.map((c) => (
-            <div
-              key={c.id}
-              style={{
-                padding: '1rem',
-                marginBottom: '0.5rem',
-                background: colors.cream,
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>{c.nombre}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                Inicio: {formatFecha(c.fechaInicio)}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Nueva ficha</h2>
-          <input type="text" placeholder="Nombre completo" style={styles.input} />
-          <input type="email" placeholder="Email" style={styles.input} />
-          <input type="date" placeholder="Fecha de inicio" style={styles.input} />
-          <input type="number" placeholder="Objetivo de peso (kg a bajar)" style={styles.input} />
-          <input type="number" placeholder="Peso inicial" style={styles.input} />
-          <div style={styles.profileLabel}>Restricciones alimentarias</div>
-          <div style={styles.checkboxGroup}>
-            {['Gluten', 'Lactosa', 'Vegetariana', 'Vegana', 'Otras'].map((r) => (
-              <label key={r} style={styles.checkboxLabel}>
-                <input type="checkbox" />
-                {r}
-              </label>
-            ))}
-          </div>
-          <select style={styles.select}>
-            <option>Nivel de actividad</option>
-            <option>Bajo</option>
-            <option>Moderado</option>
-            <option>Alto</option>
-          </select>
-          <input type="text" placeholder="Horario de comidas preferido" style={styles.input} />
-          <textarea placeholder="Tu por qué" style={styles.textarea} />
-          <textarea placeholder="Notas iniciales" style={styles.textarea} />
-          <button style={styles.buttonPrimary}>Crear ficha</button>
-        </div>
-      </div>
-    </>
-  );
+  const renderClientas = () => <AdminClientas />;
+  const renderFichas = () => <AdminFichas />;
 
   const renderMaterial = () => (
     <>
@@ -1190,7 +953,6 @@ function Admin() {
               }}
               onClick={() => {
                 setActiveTab(item.id);
-                if (item.id !== 'clientas') setSelectedClienta(null);
               }}
             >
               <span>{item.icon}</span>

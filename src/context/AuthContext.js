@@ -9,49 +9,82 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const fetchPerfil = useCallback(async (authUser) => {
-    if (!authUser?.email) {
+    if (!authUser?.id) {
       setPerfil(null);
-      return;
+      return null;
     }
     try {
       const { data, error } = await supabase
         .from('usuarios')
         .select('*')
-        .eq('email', authUser.email)
+        .eq('id', authUser.id)
         .maybeSingle();
 
+      console.log('Perfil:', data);
+      if (error) console.error('Error query perfil (puede ser RLS):', error);
       if (!error && data) {
         setPerfil(data);
-      } else {
-        setPerfil(null);
+        return data;
       }
+      setPerfil(null);
+      return null;
     } catch (err) {
       console.error('Error cargando perfil:', err);
       setPerfil(null);
+      return null;
     }
   }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchPerfil(session.user);
-      } else {
-        setPerfil(null);
+      try {
+        console.log('Session:', session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          try {
+            const p = await fetchPerfil(session.user);
+            if (!p) setUser(null);
+          } catch (e) {
+            console.error('Error en carga inicial de perfil:', e);
+            setPerfil(null);
+            setUser(null);
+          }
+        } else {
+          setPerfil(null);
+        }
+      } finally {
+        setLoading(false);
       }
+    }).catch((err) => {
+      console.error('Error getSession:', err);
+      setUser(null);
+      setPerfil(null);
       setLoading(false);
     });
   }, [fetchPerfil]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchPerfil(session.user);
-      } else {
-        setPerfil(null);
+      try {
+        console.log('Session:', session);
+        if (event === 'SIGNED_OUT' || !session) {
+          setUser(null);
+          setPerfil(null);
+          setLoading(false);
+          return;
+        }
+        setUser(session.user);
+        try {
+          const p = await fetchPerfil(session.user);
+          if (!p) setUser(null);
+        } catch (e) {
+          console.error('Error en onAuthStateChange perfil:', e);
+          setPerfil(null);
+          setUser(null);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => subscription.unsubscribe();
   }, [fetchPerfil]);
