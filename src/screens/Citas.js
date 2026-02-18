@@ -1,13 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+const NOTAS_SESION_KEY = 'notas_sesion';
+
+const defaultNotes = [
+  'Dudas sobre el plan de esta semana',
+  'Quiero ajustar los horarios de comida',
+  'Noté cambios en mi energía'
+];
+
+function loadNotasSesion() {
+  try {
+    const raw = localStorage.getItem(NOTAS_SESION_KEY);
+    if (!raw) return defaultNotes;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : defaultNotes;
+  } catch {
+    return defaultNotes;
+  }
+}
+
+function saveNotasSesion(notas) {
+  try {
+    localStorage.setItem(NOTAS_SESION_KEY, JSON.stringify(notas));
+  } catch (_) {}
+}
 
 function Citas() {
-  const [notes, setNotes] = useState([
-    'Dudas sobre el plan de esta semana',
-    'Quiero ajustar los horarios de comida',
-    'Noté cambios en mi energía'
-  ]);
+  const [notes, setNotes] = useState(loadNotasSesion);
   const [newNote, setNewNote] = useState('');
   const [showNewNote, setShowNewNote] = useState(false);
+
+  useEffect(() => {
+    saveNotasSesion(notes);
+  }, [notes]);
 
   // Colores (iguales a Home.js)
   const colors = {
@@ -29,8 +54,9 @@ function Citas() {
   ];
 
   const handleAddNote = () => {
-    if (newNote.trim()) {
-      setNotes([...notes, newNote.trim()]);
+    const text = newNote.trim();
+    if (text) {
+      setNotes([...notes, text]);
       setNewNote('');
       setShowNewNote(false);
     } else {
@@ -38,7 +64,7 @@ function Citas() {
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleAddNote();
@@ -220,7 +246,7 @@ function Citas() {
       flexShrink: 0
     },
     noteInput: {
-      width: '100%',
+      flex: 1,
       border: 'none',
       outline: 'none',
       fontFamily: "'Jost', sans-serif",
@@ -229,6 +255,25 @@ function Citas() {
       background: 'transparent',
       padding: '0.25rem 0',
       resize: 'none'
+    },
+    noteInputRow: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.75rem',
+      flex: 1,
+      minWidth: 0
+    },
+    guardarButton: {
+      padding: '0.5rem 1rem',
+      borderRadius: '0.5rem',
+      border: 'none',
+      background: colors.sage,
+      color: 'white',
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.9rem',
+      fontWeight: 500,
+      cursor: 'pointer',
+      flexShrink: 0
     },
     floatingButton: {
       position: 'fixed',
@@ -323,16 +368,20 @@ function Citas() {
           {showNewNote ? (
             <div style={styles.noteItem}>
               <div style={styles.noteDot} />
-              <input
-                type="text"
-                style={styles.noteInput}
-                placeholder="Escribí tu nota aquí..."
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                onKeyPress={handleKeyPress}
-                onBlur={handleAddNote}
-                autoFocus
-              />
+              <div style={styles.noteInputRow}>
+                <input
+                  type="text"
+                  style={styles.noteInput}
+                  placeholder="Escribí tu nota aquí..."
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  autoFocus
+                />
+                <button type="button" style={styles.guardarButton} onClick={handleAddNote}>
+                  Guardar
+                </button>
+              </div>
             </div>
           ) : (
             <div style={styles.notesPlaceholder}>

@@ -1,8 +1,93 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+const REGISTROS_KEY = 'registros_peso';
+
+const defaultRegistros = [
+  { fecha: '2026-01-15', peso: 78 },
+  { fecha: '2026-01-22', peso: 76.5 },
+  { fecha: '2026-01-29', peso: 75.3 },
+  { fecha: '2026-02-05', peso: 74.4 },
+  { fecha: '2026-02-12', peso: 73.3 },
+  { fecha: '2026-02-19', peso: 72.5 }
+];
+
+function getTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadRegistros() {
+  try {
+    const raw = localStorage.getItem(REGISTROS_KEY);
+    if (!raw) return defaultRegistros;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultRegistros;
+  } catch {
+    return defaultRegistros;
+  }
+}
+
+function saveRegistros(arr) {
+  try {
+    localStorage.setItem(REGISTROS_KEY, JSON.stringify(arr));
+  } catch (_) {}
+}
+
+function formatFechaShort(str) {
+  if (!str) return '';
+  const d = new Date(str);
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function buildChartAndRecords(registros) {
+  const last6 = registros.slice(-6);
+  const firstPeso = last6.length ? last6[0].peso : 0;
+  const chartData = last6.map((r, i) => ({
+    semana: `S${i + 1}`,
+    peso: r.peso
+  }));
+  const weeklyRecords = last6.map((r, i) => ({
+    semana: `Semana ${i + 1}`,
+    fecha: formatFechaShort(r.fecha),
+    peso: r.peso,
+    perdido: Math.round((firstPeso - r.peso) * 10) / 10
+  }));
+  return { chartData, weeklyRecords };
+}
 
 function Progreso() {
   const [selectedPeriod, setSelectedPeriod] = useState('6 semanas');
+  const [registros, setRegistros] = useState(loadRegistros);
+  const [showPesoModal, setShowPesoModal] = useState(false);
+  const [nuevoPeso, setNuevoPeso] = useState('');
+
+  useEffect(() => {
+    saveRegistros(registros);
+  }, [registros]);
+
+  const { chartData, weeklyRecords } = useMemo(() => buildChartAndRecords(registros), [registros]);
+
+  const openPesoModal = () => {
+    setNuevoPeso('');
+    setShowPesoModal(true);
+  };
+
+  const closePesoModal = () => {
+    setShowPesoModal(false);
+    setNuevoPeso('');
+  };
+
+  const savePeso = () => {
+    const num = parseFloat(nuevoPeso.replace(',', '.').trim());
+    if (Number.isNaN(num) || num <= 0 || num >= 300) return;
+    const today = getTodayKey();
+    const next = registros.filter((r) => r.fecha !== today);
+    next.push({ fecha: today, peso: num });
+    setRegistros(next);
+    closePesoModal();
+  };
 
   // Colores (iguales a Home.js)
   const colors = {
@@ -11,26 +96,6 @@ function Progreso() {
     cream: '#f8f4ee',
     gold: '#b8956a'
   };
-
-  // Datos del gráfico
-  const chartData = [
-    { semana: 'S1', peso: 78 },
-    { semana: 'S2', peso: 76.5 },
-    { semana: 'S3', peso: 75.3 },
-    { semana: 'S4', peso: 74.4 },
-    { semana: 'S5', peso: 73.3 },
-    { semana: 'S6', peso: 72.5 }
-  ];
-
-  // Datos de registro semanal
-  const weeklyRecords = [
-    { semana: 'Semana 1', fecha: '15 Ene', peso: 78.0, perdido: 0 },
-    { semana: 'Semana 2', fecha: '22 Ene', peso: 76.5, perdido: 1.5 },
-    { semana: 'Semana 3', fecha: '29 Ene', peso: 75.3, perdido: 2.7 },
-    { semana: 'Semana 4', fecha: '5 Feb', peso: 74.4, perdido: 3.6 },
-    { semana: 'Semana 5', fecha: '12 Feb', peso: 73.3, perdido: 4.7 },
-    { semana: 'Semana 6', fecha: '19 Feb', peso: 72.5, perdido: 5.5 }
-  ];
 
   // Estilos
   const styles = {
@@ -197,12 +262,89 @@ function Progreso() {
       fontSize: '0.85rem',
       color: colors.sage,
       fontWeight: 500
+    },
+    addPesoButton: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.75rem',
+      border: `2px solid ${colors.sage}`,
+      background: 'white',
+      color: colors.sageDark,
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      fontWeight: 500,
+      cursor: 'pointer',
+      marginBottom: '1.25rem'
+    },
+    modalOverlay: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.4)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '1.25rem'
+    },
+    modalBox: {
+      background: colors.cream,
+      borderRadius: '1rem',
+      padding: '1.5rem',
+      maxWidth: '340px',
+      width: '100%',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+    },
+    modalTitle: {
+      fontFamily: "'Playfair Display', Georgia, serif",
+      fontSize: '1.1rem',
+      color: colors.sageDark,
+      marginBottom: '1rem'
+    },
+    modalInput: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.5rem',
+      border: `2px solid rgba(61, 92, 65, 0.3)`,
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '1rem',
+      marginBottom: '1rem',
+      boxSizing: 'border-box'
+    },
+    modalActions: {
+      display: 'flex',
+      gap: '0.75rem'
+    },
+    modalButtonSave: {
+      flex: 1,
+      padding: '0.75rem',
+      borderRadius: '0.75rem',
+      border: 'none',
+      background: colors.sage,
+      color: 'white',
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '1rem',
+      fontWeight: 500,
+      cursor: 'pointer'
+    },
+    modalButtonCancel: {
+      flex: 1,
+      padding: '0.75rem',
+      borderRadius: '0.75rem',
+      border: `2px solid ${colors.sage}`,
+      background: 'transparent',
+      color: colors.sageDark,
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '1rem',
+      fontWeight: 500,
+      cursor: 'pointer'
     }
   };
 
   const periods = ['6 semanas', '3 meses', 'Todo'];
 
-  // Custom tooltip para el gráfico
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       return (
@@ -228,15 +370,17 @@ function Progreso() {
     return null;
   };
 
+  const pesoMin = chartData.length ? Math.min(...chartData.map((d) => d.peso)) - 2 : 70;
+  const pesoMax = chartData.length ? Math.max(...chartData.map((d) => d.peso)) + 2 : 80;
+  const yDomain = [Math.max(40, Math.floor(pesoMin)), Math.ceil(pesoMax)];
+
   return (
     <div style={styles.container}>
-      {/* Header con gradiente */}
       <div style={styles.header}>
         <h1 style={styles.headerTitle}>Tu Progreso</h1>
         <p style={styles.headerSubtitle}>Semana 6 de 12</p>
       </div>
 
-      {/* Tarjeta de progreso principal */}
       <div style={styles.progressCard}>
         <div style={styles.progressNumber}>−5,5 kg</div>
         <div style={styles.progressText}>
@@ -244,7 +388,6 @@ function Progreso() {
         </div>
       </div>
 
-      {/* Chips de período */}
       <div style={styles.chipsContainer}>
         {periods.map((period) => (
           <button
@@ -260,7 +403,10 @@ function Progreso() {
         ))}
       </div>
 
-      {/* Tarjeta con gráfico */}
+      <button style={styles.addPesoButton} onClick={openPesoModal}>
+        ＋ Registrar peso de hoy
+      </button>
+
       <div style={styles.chartCard}>
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
@@ -274,7 +420,7 @@ function Progreso() {
               tick={{ fill: colors.sageDark, fontSize: 12, fontFamily: "'Jost', sans-serif" }}
               axisLine={{ stroke: colors.sageDark, opacity: 0.3 }}
               tickLine={{ stroke: colors.sageDark, opacity: 0.3 }}
-              domain={[70, 80]}
+              domain={yDomain}
             />
             <Tooltip content={<CustomTooltip />} />
             <Line
@@ -284,7 +430,6 @@ function Progreso() {
               strokeWidth={3}
               dot={(props) => {
                 const { index } = props;
-                // Solo mostrar punto en el último elemento
                 if (index === chartData.length - 1) {
                   return (
                     <circle
@@ -305,7 +450,6 @@ function Progreso() {
         </ResponsiveContainer>
       </div>
 
-      {/* Tres mini tarjetas */}
       <div style={styles.miniCardsContainer}>
         <div style={styles.miniCard}>
           <div style={styles.miniCardNumber}>12</div>
@@ -321,7 +465,6 @@ function Progreso() {
         </div>
       </div>
 
-      {/* Lista de registro semanal */}
       <h2 style={styles.sectionTitle}>Registro semanal</h2>
       <div style={styles.recordsList}>
         {weeklyRecords.map((record, index) => (
@@ -345,6 +488,36 @@ function Progreso() {
           </div>
         ))}
       </div>
+
+      {showPesoModal && (
+        <div
+          style={styles.modalOverlay}
+          onClick={(e) => e.target === e.currentTarget && closePesoModal()}
+        >
+          <div style={styles.modalBox}>
+            <h3 style={styles.modalTitle}>Registrar peso de hoy</h3>
+            <input
+              type="number"
+              step="0.1"
+              min="30"
+              max="300"
+              placeholder="Ej: 72.5"
+              style={styles.modalInput}
+              value={nuevoPeso}
+              onChange={(e) => setNuevoPeso(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && savePeso()}
+            />
+            <div style={styles.modalActions}>
+              <button style={styles.modalButtonCancel} onClick={closePesoModal}>
+                Cancelar
+              </button>
+              <button style={styles.modalButtonSave} onClick={savePeso}>
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

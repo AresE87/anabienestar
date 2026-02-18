@@ -1,22 +1,105 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+
+const CHECKLIST_IDS = ['actividad', 'agua', 'respiracion', 'desayuno', 'momento'];
+
+function getTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadChecklistHoy() {
+  try {
+    const key = `checklist_hoy_${getTodayKey()}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const out = {};
+    CHECKLIST_IDS.forEach((id) => {
+      out[id] = !!parsed[id];
+    });
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function saveChecklistHoy(data) {
+  try {
+    const key = `checklist_hoy_${getTodayKey()}`;
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (_) {}
+}
+
+function loadMoodHoy() {
+  try {
+    const key = 'mood_hoy';
+    const stored = localStorage.getItem(key);
+    const date = getTodayKey();
+    if (!stored) return null;
+    const { value, date: savedDate } = JSON.parse(stored);
+    return savedDate === date ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveMoodHoy(value) {
+  try {
+    localStorage.setItem('mood_hoy', JSON.stringify({ value, date: getTodayKey() }));
+  } catch (_) {}
+}
+
+function loadDifficultDayHoy() {
+  try {
+    const raw = localStorage.getItem('difficult_day_hoy');
+    if (!raw) return false;
+    const { date } = JSON.parse(raw);
+    return date === getTodayKey();
+  } catch {
+    return false;
+  }
+}
+
+function setDifficultDayHoy() {
+  try {
+    localStorage.setItem('difficult_day_hoy', JSON.stringify({ date: getTodayKey() }));
+  } catch (_) {}
+}
+
+const defaultChecked = Object.fromEntries(CHECKLIST_IDS.map((id) => [id, false]));
 
 function Home() {
-  const [checkedItems, setCheckedItems] = useState({
-    actividad: false,
-    agua: false,
-    respiracion: false,
-    desayuno: false,
-    momento: false
+  const [checkedItems, setCheckedItems] = useState(() => {
+    const saved = loadChecklistHoy();
+    return saved ? { ...defaultChecked, ...saved } : defaultChecked;
   });
 
-  const [selectedEmotion, setSelectedEmotion] = useState(null);
+  const [selectedEmotion, setSelectedEmotion] = useState(() => loadMoodHoy());
+  const [showDifficultModal, setShowDifficultModal] = useState(false);
+  const [difficultDayActive, setDifficultDayActive] = useState(loadDifficultDayHoy());
 
-  const toggleCheck = (item) => {
-    setCheckedItems(prev => ({
-      ...prev,
-      [item]: !prev[item]
-    }));
-  };
+  useEffect(() => {
+    saveChecklistHoy(checkedItems);
+  }, [checkedItems]);
+
+  const toggleCheck = useCallback((item) => {
+    setCheckedItems((prev) => ({ ...prev, [item]: !prev[item] }));
+  }, []);
+
+  const handleMoodSelect = useCallback((id) => {
+    setSelectedEmotion(id);
+    saveMoodHoy(id);
+  }, []);
+
+  const openDifficultModal = useCallback(() => {
+    setShowDifficultModal(true);
+  }, []);
+
+  const closeDifficultModal = useCallback(() => {
+    setShowDifficultModal(false);
+    setDifficultDayActive(true);
+    setDifficultDayHoy();
+  }, []);
 
   // Colores
   const colors = {
@@ -194,6 +277,14 @@ function Home() {
       textDecoration: 'line-through',
       opacity: 0.5
     },
+    checklistPausedMessage: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      color: colors.sageDark,
+      opacity: 0.7,
+      fontStyle: 'italic',
+      padding: '0.75rem 0'
+    },
     emotionSelector: {
       background: 'white',
       borderRadius: '0.75rem',
@@ -222,9 +313,10 @@ function Home() {
       padding: 0
     },
     emotionButtonSelected: {
-      background: colors.sage,
+      background: '#e8f5e9',
       borderColor: colors.sage,
-      transform: 'scale(1.1)'
+      borderWidth: '3px',
+      transform: 'scale(1.05)'
     },
     difficultDayButton: {
       width: '100%',
@@ -241,6 +333,47 @@ function Home() {
       marginBottom: '1rem',
       transition: 'all 0.2s',
       boxShadow: '0 4px 12px rgba(61, 92, 65, 0.2)'
+    },
+    modalOverlay: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.4)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '1.25rem'
+    },
+    modalBox: {
+      background: colors.cream,
+      borderRadius: '1rem',
+      padding: '1.5rem',
+      maxWidth: '340px',
+      width: '100%',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+    },
+    modalMessage: {
+      fontFamily: "'Playfair Display', Georgia, serif",
+      fontStyle: 'italic',
+      fontSize: '1.1rem',
+      color: colors.sageDark,
+      lineHeight: 1.6,
+      marginBottom: '1.5rem'
+    },
+    modalButton: {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: '0.75rem',
+      border: 'none',
+      background: colors.sage,
+      color: 'white',
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '1rem',
+      fontWeight: 500,
+      cursor: 'pointer'
     }
   };
 
@@ -271,9 +404,7 @@ function Home() {
 
       {/* Tarjeta de racha de días */}
       <div style={styles.streakCard}>
-        <div style={styles.streakNumber}>
-          12 🔥
-        </div>
+        <div style={styles.streakNumber}>12 🔥</div>
         <div style={styles.streakText}>días seguidos</div>
         <div style={styles.dots}>
           {[...Array(7)].map((_, i) => (
@@ -302,31 +433,37 @@ function Home() {
 
       {/* Checklist */}
       <div style={styles.checklist}>
-        {checklistItems.map((item, index) => (
-          <div
-            key={item.id}
-            style={{
-              ...styles.checklistItem,
-              ...(index === checklistItems.length - 1 ? styles.checklistItemLast : {})
-            }}
-            onClick={() => toggleCheck(item.id)}
-          >
-            <div style={{
-              ...styles.checkbox,
-              ...(checkedItems[item.id] ? styles.checkboxChecked : {})
-            }}>
-              {checkedItems[item.id] && (
-                <span style={styles.checkmark}>✓</span>
-              )}
-            </div>
-            <span style={{
-              ...styles.checklistLabel,
-              ...(checkedItems[item.id] ? styles.checklistLabelChecked : {})
-            }}>
-              {item.label}
-            </span>
+        {difficultDayActive ? (
+          <div style={styles.checklistPausedMessage}>
+            Hoy te tomás un descanso. No hay checklist. 💚
           </div>
-        ))}
+        ) : (
+          checklistItems.map((item, index) => (
+            <div
+              key={item.id}
+              style={{
+                ...styles.checklistItem,
+                ...(index === checklistItems.length - 1 ? styles.checklistItemLast : {})
+              }}
+              onClick={() => toggleCheck(item.id)}
+            >
+              <div style={{
+                ...styles.checkbox,
+                ...(checkedItems[item.id] ? styles.checkboxChecked : {})
+              }}>
+                {checkedItems[item.id] && (
+                  <span style={styles.checkmark}>✓</span>
+                )}
+              </div>
+              <span style={{
+                ...styles.checklistLabel,
+                ...(checkedItems[item.id] ? styles.checklistLabelChecked : {})
+              }}>
+                {item.label}
+              </span>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Selector de estado emocional */}
@@ -342,7 +479,7 @@ function Home() {
                 ...styles.emotionButton,
                 ...(selectedEmotion === emotion.id ? styles.emotionButtonSelected : {})
               }}
-              onClick={() => setSelectedEmotion(emotion.id)}
+              onClick={() => handleMoodSelect(emotion.id)}
               aria-label={`Estado emocional: ${emotion.emoji}`}
             >
               {emotion.emoji}
@@ -362,9 +499,27 @@ function Home() {
           e.target.style.transform = 'translateY(0)';
           e.target.style.boxShadow = '0 4px 12px rgba(61, 92, 65, 0.2)';
         }}
+        onClick={openDifficultModal}
       >
         Hoy es un día difícil 🌿
       </button>
+
+      {/* Modal día difícil */}
+      {showDifficultModal && (
+        <div
+          style={styles.modalOverlay}
+          onClick={(e) => e.target === e.currentTarget && closeDifficultModal()}
+        >
+          <div style={styles.modalBox}>
+            <p style={styles.modalMessage}>
+              Está bien tomarse un descanso. Lo más importante es que estás acá, intentándolo. Eso ya es un logro enorme. 💚
+            </p>
+            <button style={styles.modalButton} onClick={closeDifficultModal}>
+              Gracias, Ana ♡
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
