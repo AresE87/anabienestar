@@ -9,6 +9,14 @@ function getTodayKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function calcularSemana(fecha, fechaInicio) {
+  const inicio = new Date(fechaInicio);
+  const actual = new Date(fecha);
+  const diffTime = actual - inicio;
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  return Math.floor(diffDays / 7) + 1;
+}
+
 function formatFechaShort(str) {
   if (!str) return '';
   const d = new Date(str);
@@ -47,7 +55,7 @@ function Progreso() {
       try {
         const { data, error } = await supabase
           .from('registros_peso')
-          .select('fecha, peso')
+          .select('fecha, peso, semana')
           .eq('usuario_id', USER_ID)
           .order('fecha', { ascending: true });
 
@@ -82,13 +90,21 @@ function Progreso() {
 
     const fecha = getTodayKey();
     
+    // Calcular semana: si hay registros, usar la fecha del primer registro como inicio
+    // Si no hay registros, usar una fecha de inicio por defecto (15 de enero 2026)
+    const fechaInicio = registros.length > 0 
+      ? registros[0].fecha 
+      : '2026-01-15';
+    const semana = calcularSemana(fecha, fechaInicio);
+    
     try {
       const { error } = await supabase
         .from('registros_peso')
         .upsert({
           usuario_id: USER_ID,
           fecha: fecha,
-          peso: num
+          peso: num,
+          semana: semana
         });
 
       if (error) {
@@ -99,7 +115,7 @@ function Progreso() {
       // Recargar registros
       const { data, error: reloadError } = await supabase
         .from('registros_peso')
-        .select('fecha, peso')
+        .select('fecha, peso, semana')
         .eq('usuario_id', USER_ID)
         .order('fecha', { ascending: true });
 

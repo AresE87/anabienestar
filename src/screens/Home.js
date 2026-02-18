@@ -18,92 +18,98 @@ function Home() {
   const [difficultDayActive, setDifficultDayActive] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Cargar datos iniciales
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      const fecha = getTodayKey();
+  // Cargar día difícil desde localStorage
+  function loadDifficultDayHoy() {
+    try {
+      const raw = localStorage.getItem('difficult_day_hoy');
+      if (!raw) return false;
+      const { date } = JSON.parse(raw);
+      return date === getTodayKey();
+    } catch {
+      return false;
+    }
+  }
 
+  function setDifficultDayHoy() {
+    try {
+      localStorage.setItem('difficult_day_hoy', JSON.stringify({ date: getTodayKey() }));
+    } catch (_) {}
+  }
+
+  // Un solo fetch al montar: checklist + estado de ánimo. Dependencias [] = solo una vez.
+  useEffect(() => {
+    let cancelled = false;
+    const fecha = getTodayKey();
+
+    async function loadData() {
+      setLoading(true);
       try {
-        // Cargar checklist
         const { data: checklistData, error: checklistError } = await supabase
           .from('checklist_items')
           .select('item, completado')
           .eq('usuario_id', USER_ID)
           .eq('fecha', fecha);
 
-        if (!checklistError && checklistData) {
+        if (cancelled) return;
+        if (!checklistError && Array.isArray(checklistData)) {
           const items = { ...defaultChecked };
           checklistData.forEach((row) => {
-            if (CHECKLIST_IDS.includes(row.item)) {
-              items[row.item] = row.completado;
+            if (row && CHECKLIST_IDS.includes(row.item)) {
+              items[row.item] = Boolean(row.completado);
             }
           });
           setCheckedItems(items);
         }
 
-        // Cargar estado de ánimo
-        const { data: moodData, error: moodError } = await supabase
+        const { data: moodRow, error: moodError } = await supabase
           .from('estados_animo')
           .select('mood')
           .eq('usuario_id', USER_ID)
           .eq('fecha', fecha)
-          .single();
+          .maybeSingle();
 
-        if (!moodError && moodData) {
-          setSelectedEmotion(moodData.mood);
+        if (cancelled) return;
+        if (!moodError && moodRow && moodRow.mood != null) {
+          setSelectedEmotion(moodRow.mood);
         }
 
-        // Cargar día difícil
-        const { data: difficultData, error: difficultError } = await supabase
-          .from('dias_dificiles')
-          .select('id')
-          .eq('usuario_id', USER_ID)
-          .eq('fecha', fecha)
-          .single();
-
-        if (!difficultError && difficultData) {
-          setDifficultDayActive(true);
-        }
+        setDifficultDayActive(loadDifficultDayHoy());
       } catch (error) {
-        console.error('Error cargando datos:', error);
+        if (!cancelled) console.error('Error cargando datos:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
+    }
 
     loadData();
+    return () => { cancelled = true; };
   }, []);
 
   const toggleCheck = useCallback(async (item) => {
     const newValue = !checkedItems[item];
     setCheckedItems((prev) => ({ ...prev, [item]: newValue }));
-
     const fecha = getTodayKey();
-    const { error } = await supabase.from('checklist_items').upsert({
-      usuario_id: USER_ID,
-      fecha: fecha,
-      item: item,
-      completado: newValue
-    });
-
+    const { error } = await supabase
+      .from('checklist_items')
+      .upsert(
+        { usuario_id: USER_ID, fecha, item, completado: newValue },
+        { onConflict: 'usuario_id,fecha,item' }
+      );
     if (error) {
       console.error('Error guardando checklist:', error);
-      // Revertir cambio en caso de error
       setCheckedItems((prev) => ({ ...prev, [item]: !newValue }));
     }
   }, [checkedItems]);
 
   const handleMoodSelect = useCallback(async (id) => {
     setSelectedEmotion(id);
-
     const fecha = getTodayKey();
-    const { error } = await supabase.from('estados_animo').upsert({
-      usuario_id: USER_ID,
-      fecha: fecha,
-      mood: id
-    });
-
+    const { error } = await supabase
+      .from('estados_animo')
+      .upsert(
+        { usuario_id: USER_ID, fecha, mood: id },
+        { onConflict: 'usuario_id,fecha' }
+      );
     if (error) {
       console.error('Error guardando estado de ánimo:', error);
       setSelectedEmotion(null);
@@ -114,20 +120,10 @@ function Home() {
     setShowDifficultModal(true);
   }, []);
 
-  const closeDifficultModal = useCallback(async () => {
+  const closeDifficultModal = useCallback(() => {
     setShowDifficultModal(false);
     setDifficultDayActive(true);
-
-    const fecha = getTodayKey();
-    const { error } = await supabase.from('dias_dificiles').upsert({
-      usuario_id: USER_ID,
-      fecha: fecha
-    });
-
-    if (error) {
-      console.error('Error guardando día difícil:', error);
-      setDifficultDayActive(false);
-    }
+    setDifficultDayHoy();
   }, []);
 
   // Colores

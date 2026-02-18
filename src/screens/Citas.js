@@ -23,13 +23,13 @@ function Citas() {
       try {
         const { data, error } = await supabase
           .from('notas_sesion')
-          .select('nota')
+          .select('texto')
           .eq('usuario_id', USER_ID)
           .eq('fecha', fecha)
           .order('created_at', { ascending: true });
 
         if (!error && data) {
-          setNotes(data.map((row) => row.nota));
+          setNotes(data.map((row) => row.texto));
         }
       } catch (error) {
         console.error('Error cargando notas:', error);
@@ -55,8 +55,7 @@ function Citas() {
         .from('notas_sesion')
         .insert({
           usuario_id: USER_ID,
-          fecha: fecha,
-          nota: text
+          texto: text
         });
 
       if (error) {
