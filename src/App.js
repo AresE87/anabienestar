@@ -13,18 +13,27 @@ function AppContent() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
 
+  if (isAdmin) {
+    return (
+      <div className="admin-wrapper">
+        <Routes>
+          <Route path="/admin/*" element={<Admin />} />
+        </Routes>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div className="mobile-container">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/progreso" element={<Progreso />} />
         <Route path="/recetas" element={<Recetas />} />
         <Route path="/material" element={<Material />} />
         <Route path="/citas" element={<Citas />} />
-        <Route path="/admin" element={<Admin />} />
       </Routes>
-      {!isAdmin && <BottomNav />}
-    </>
+      <BottomNav />
+    </div>
   );
 }
 
