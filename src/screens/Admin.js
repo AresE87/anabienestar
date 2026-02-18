@@ -615,77 +615,8 @@ function Admin() {
   const renderClientas = () => <AdminClientas />;
   const renderFichas = () => <AdminFichas />;
 
-  const renderMaterial = () => (
-    <>
-      <div style={styles.topbar}>
-        <h1 style={styles.topbarTitle}>Material</h1>
-        <button style={styles.buttonPrimary}>＋ Subir material</button>
-      </div>
-      <div style={styles.section}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.tableHeader}>Título</th>
-              <th style={styles.tableHeader}>Páginas</th>
-              <th style={styles.tableHeader}>Fecha</th>
-              <th style={styles.tableHeader}>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={styles.tableRow}>
-              <td style={styles.tableCell}>Método Livianas — Guía Completa</td>
-              <td style={styles.tableCell}>48</td>
-              <td style={styles.tableCell}>15 Feb 2026</td>
-              <td style={styles.tableCell}>
-                <label style={styles.checkboxLabel}>
-                  <input type="checkbox" defaultChecked />
-                  Visible
-                </label>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-
-  const renderVideos = () => (
-    <>
-      <div style={styles.topbar}>
-        <h1 style={styles.topbarTitle}>Videos</h1>
-        <button style={styles.buttonPrimary}>＋ Agregar video</button>
-      </div>
-      <div style={styles.section}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
-          {[
-            { titulo: 'Respiración guiada', categoria: 'Respiración', duracion: '10 min', emoji: '🧘' },
-            { titulo: 'Motivación diaria', categoria: 'Motivación', duracion: '5 min', emoji: '💪' },
-            { titulo: 'Receta del día', categoria: 'Recetas', duracion: '15 min', emoji: '🍳' }
-          ].map((v, i) => (
-            <div
-              key={i}
-              style={{
-                background: colors.cream,
-                borderRadius: '14px',
-                padding: '1.5rem',
-                textAlign: 'center'
-              }}
-            >
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>{v.emoji}</div>
-              <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{v.titulo}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '1rem' }}>
-                {v.categoria} · {v.duracion}
-              </div>
-              <label style={styles.checkboxLabel}>
-                <input type="checkbox" defaultChecked />
-                Visible
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
+  const renderMaterial = () => <AdminMaterial />;
+  const renderVideos = () => <AdminVideos />;
 
   const renderNotificaciones = () => (
     <>
