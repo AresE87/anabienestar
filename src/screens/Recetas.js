@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
+// Datos fallback si la tabla no existe todavia
+const RECETAS_FALLBACK = [
+  { id: 'f1', nombre: 'Tostada de palta con huevo', categoria: 'Desayuno', emoji: '🥑', tiempo: '10 min', calorias: '280 kcal' },
+  { id: 'f2', nombre: 'Bowl de quinoa con verduras', categoria: 'Almuerzo', emoji: '🥗', tiempo: '20 min', calorias: '420 kcal' },
+  { id: 'f3', nombre: 'Huevos revueltos con espinaca', categoria: 'Desayuno', emoji: '🍳', tiempo: '8 min', calorias: '220 kcal' },
+  { id: 'f4', nombre: 'Sopa de lentejas express', categoria: 'Cena', emoji: '🍲', tiempo: '25 min', calorias: '310 kcal' },
+  { id: 'f5', nombre: 'Snack de manzana y almendras', categoria: 'Snack', emoji: '🍎', tiempo: '2 min', calorias: '150 kcal' },
+  { id: 'f6', nombre: 'Salmon al horno con limon', categoria: 'Cena', emoji: '🐟', tiempo: '30 min', calorias: '380 kcal' },
+  { id: 'f7', nombre: 'Smoothie verde detox', categoria: 'Desayuno', emoji: '🥤', tiempo: '5 min', calorias: '190 kcal' },
+  { id: 'f8', nombre: 'Wrap de pollo y vegetales', categoria: 'Almuerzo', emoji: '🌯', tiempo: '15 min', calorias: '350 kcal' },
+  { id: 'f9', nombre: 'Yogur con granola y frutas', categoria: 'Desayuno', emoji: '🫐', tiempo: '3 min', calorias: '210 kcal' },
+  { id: 'f10', nombre: 'Pollo grillado con batata', categoria: 'Cena', emoji: '🍗', tiempo: '35 min', calorias: '450 kcal' },
+];
+
 function Recetas() {
   const [selectedFilter, setSelectedFilter] = useState('Todas');
   const [recetas, setRecetas] = useState([]);
@@ -13,7 +27,7 @@ function Recetas() {
     gold: '#b8956a'
   };
 
-  // Cargar recetas de Supabase
+  // Cargar recetas de Supabase (con fallback si la tabla no existe)
   useEffect(() => {
     const loadRecetas = async () => {
       setLoading(true);
@@ -30,9 +44,21 @@ function Recetas() {
         }
 
         const { data, error } = await q;
-        if (!error) setRecetas(data || []);
+        if (error) {
+          // Table doesn't exist — use fallback data
+          console.warn('Tabla recetas no disponible, usando datos locales:', error.message);
+          // fallback activo
+          const filtered = selectedFilter === 'Todas'
+            ? RECETAS_FALLBACK
+            : RECETAS_FALLBACK.filter(r => r.categoria === (selectedFilter === 'Snacks' ? 'Snack' : selectedFilter));
+          setRecetas(filtered);
+        } else {
+          setRecetas(data || []);
+        }
       } catch (err) {
         console.error('Error cargando recetas:', err);
+        // fallback activo
+        setRecetas(RECETAS_FALLBACK);
       } finally {
         setLoading(false);
       }

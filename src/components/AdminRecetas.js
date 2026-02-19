@@ -58,7 +58,11 @@ export default function AdminRecetas() {
       let q = supabase.from('recetas').select('*').order('created_at', { ascending: false });
       if (filtro !== 'Todas') q = q.eq('categoria', filtro);
       const { data, error } = await q;
-      if (!error) setRecetas(data || []);
+      if (error) {
+        console.warn('Tabla recetas no disponible:', error.message);
+      } else {
+        setRecetas(data || []);
+      }
     } catch (err) {
       console.error('Error:', err);
     } finally {

@@ -47,26 +47,30 @@ export default function Home() {
   const [recetaHoy, setRecetaHoy] = useState(RECETA_FALLBACK);
   const [showPushBanner, setShowPushBanner] = useState(false);
 
-  // Fetch frase del dia + receta random from Supabase
+  // Fetch frase del dia + receta random from Supabase (resiliente a tablas faltantes)
   useEffect(() => {
     const fetchData = async () => {
+      // Frases
       try {
-        const [frasesRes, recetasRes] = await Promise.all([
-          supabase.from('frases').select('texto').eq('activa', true),
-          supabase.from('recetas').select('emoji, nombre, tiempo, calorias').eq('visible', true)
-        ]);
-
-        if (frasesRes.data && frasesRes.data.length > 0) {
-          const idx = Math.floor(Math.random() * frasesRes.data.length);
-          setFraseDelDia(frasesRes.data[idx].texto);
-        }
-
-        if (recetasRes.data && recetasRes.data.length > 0) {
-          const idx = Math.floor(Math.random() * recetasRes.data.length);
-          setRecetaHoy(recetasRes.data[idx]);
+        const { data, error } = await supabase.from('frases').select('texto').eq('activa', true);
+        if (!error && data && data.length > 0) {
+          const idx = Math.floor(Math.random() * data.length);
+          setFraseDelDia(data[idx].texto);
         }
       } catch (err) {
-        console.error('Error cargando datos:', err);
+        console.warn('Frases no disponibles:', err.message);
+      }
+
+      // Receta del dia
+      try {
+        const { data, error } = await supabase.from('recetas').select('emoji, nombre, tiempo, calorias').eq('visible', true);
+        if (!error && data && data.length > 0) {
+          const idx = Math.floor(Math.random() * data.length);
+          setRecetaHoy(data[idx]);
+        }
+        // Si error, simplemente se mantiene RECETA_FALLBACK
+      } catch (err) {
+        console.warn('Recetas no disponibles, usando fallback');
       }
     };
     fetchData();
