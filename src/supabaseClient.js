@@ -7,7 +7,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     storageKey: 'anabienestar-auth',
-    storage: window.localStorage,
-    lock: false,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
   },
 })

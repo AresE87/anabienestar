@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -7,6 +7,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
+  const initializedRef = useRef(false);
 
   const fetchPerfil = useCallback(async (authUser) => {
     if (!authUser?.id) {
@@ -20,7 +21,6 @@ export function AuthProvider({ children }) {
         .eq('id', authUser.id)
         .maybeSingle();
 
-      console.log('Perfil:', data);
       if (error) console.error('Error query perfil (puede ser RLS):', error);
       if (!error && data) {
         setPerfil(data);
@@ -35,71 +35,76 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      try {
-        console.log('Session:', session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          try {
-            const p = await fetchPerfil(session.user);
-            if (!p) setUser(null);
-          } catch (e) {
-            console.error('Error en carga inicial de perfil:', e);
-            setPerfil(null);
-            setUser(null);
-          }
-        } else {
-          setPerfil(null);
-        }
-      } finally {
-        setLoading(false);
-      }
-    }).catch((err) => {
-      console.error('Error getSession:', err);
-      setUser(null);
-      setPerfil(null);
-      setLoading(false);
-    });
-  }, [fetchPerfil]);
-
+  // Unico listener: onAuthStateChange maneja TODO (login, logout, refresh, sesion inicial)
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      try {
-        console.log('Session:', session);
-        if (event === 'SIGNED_OUT' || !session) {
-          setUser(null);
+      if (event === 'SIGNED_OUT' || !session) {
+        setUser(null);
+        setPerfil(null);
+        setLoading(false);
+        return;
+      }
+
+      setUser(session.user);
+
+      // Cargar perfil solo en estos eventos relevantes
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+        const p = await fetchPerfil(session.user);
+        if (!p) {
+          // Tiene sesion auth pero no perfil en tabla usuarios
+          setUser(session.user); // mantener user para mostrar mensaje "sin perfil"
           setPerfil(null);
-          setLoading(false);
-          return;
         }
-        setUser(session.user);
-        try {
-          const p = await fetchPerfil(session.user);
-          if (!p) setUser(null);
-        } catch (e) {
-          console.error('Error en onAuthStateChange perfil:', e);
-          setPerfil(null);
-          setUser(null);
-        }
-      } finally {
+      }
+
+      setLoading(false);
+    });
+
+    // Disparar la carga inicial — getSession emite INITIAL_SESSION via onAuthStateChange
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      // Si no hay sesion, onAuthStateChange no dispara, asi que resolvemos aqui
+      if (!session && !initializedRef.current) {
+        initializedRef.current = true;
+        setUser(null);
+        setPerfil(null);
         setLoading(false);
       }
     });
-    return () => subscription.unsubscribe();
+
+    // Timeout de seguridad: si loading sigue en true despues de 8s, forzar resolucion
+    const timeout = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          console.warn('Auth timeout: forzando fin de carga');
+          return false;
+        }
+        return prev;
+      });
+    }, 8000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, [fetchPerfil]);
 
   const login = useCallback(async (email, password) => {
+    setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    if (data?.user) await fetchPerfil(data.user);
+    if (error) {
+      setLoading(false);
+      throw error;
+    }
+    // onAuthStateChange se encarga del resto (perfil, loading=false)
     return data;
-  }, [fetchPerfil]);
+  }, []);
 
   const logout = useCallback(async () => {
+    setLoading(true);
     await supabase.auth.signOut();
     setUser(null);
     setPerfil(null);
+    setLoading(false);
   }, []);
 
   const value = {

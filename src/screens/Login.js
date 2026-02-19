@@ -23,19 +23,23 @@ export default function Login({ onLoginError }) {
     }
     setLoading(true);
     try {
-      await supabase.auth.signInWithPassword({
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
-    } catch (err) {
-      const msg = err?.message || '';
-      if (msg.includes('Invalid login')) {
-        setError('Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.');
-      } else if (msg.includes('Email not confirmed')) {
-        setError('Tu cuenta aún no fue confirmada. Revisá tu correo.');
-      } else {
-        setError('No pudimos iniciar sesión. Intentá de nuevo.');
+      if (authError) {
+        const msg = authError.message || '';
+        if (msg.includes('Invalid login')) {
+          setError('Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.');
+        } else if (msg.includes('Email not confirmed')) {
+          setError('Tu cuenta aún no fue confirmada. Revisá tu correo.');
+        } else {
+          setError('No pudimos iniciar sesión. Intentá de nuevo.');
+        }
+        if (typeof onLoginError === 'function') onLoginError(authError);
       }
+    } catch (err) {
+      setError('Error de conexión. Verificá tu internet e intentá de nuevo.');
       if (typeof onLoginError === 'function') onLoginError(err);
     } finally {
       setLoading(false);

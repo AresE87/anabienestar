@@ -215,6 +215,15 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 4. **Flujo para Ana**: Panel admin → Configuracion → "Insertar datos de ejemplo" carga los 8 PDFs automaticamente en la tabla `material`
 5. Las clientas ven los PDFs en la pantalla Material (requiere acceso, ver tarea pendiente de BottomNav)
 
+### Sesion 4 — 2026-02-19 (fix auth bugs + mejoras)
+1. **Bug fix principal**: login→logout→login se quedaba en "Cargando..." infinito
+   - Causa: race condition entre `getSession()` y `onAuthStateChange` — ambos manipulaban loading/user/perfil en paralelo
+   - Solucion: unificar todo en un solo listener `onAuthStateChange` que maneja INITIAL_SESSION, SIGNED_IN, SIGNED_OUT y TOKEN_REFRESHED
+   - Se agrego timeout de seguridad (8s) para que nunca quede en loading infinito
+2. **Bug fix Login.js**: `signInWithPassword` de Supabase no hace throw, devuelve `{ error }`. El catch nunca atrapaba errores. Ahora se revisa `authError` directamente.
+3. **Fix supabaseClient.js**: se quito `lock: false` y `storage: window.localStorage` (defaults de Supabase son mejores). Se agrego `autoRefreshToken: true` y `detectSessionInUrl: true`.
+4. Boton de logout ya existia en Home.js (verificado)
+
 ---
 
 ## PREFERENCIAS DEL USUARIO
