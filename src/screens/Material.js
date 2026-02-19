@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext';
 
 const colors = {
   sage: '#7a9e7e',
@@ -32,6 +33,7 @@ function isNew(createdAt) {
 }
 
 function Material() {
+  const { user } = useAuth();
   const [materiales, setMateriales] = useState([]);
   const [videos, setVideos] = useState([]);
   const [loadingMaterial, setLoadingMaterial] = useState(true);
@@ -42,12 +44,38 @@ function Material() {
     const load = async () => {
       setLoadingMaterial(true);
       try {
-        const { data, error } = await supabase
+        // Traer todo el material visible
+        const { data: allMaterial, error } = await supabase
           .from('material')
           .select('*')
           .eq('visible', true)
           .order('created_at', { ascending: false });
-        if (!error) setMateriales(data || []);
+
+        if (error) {
+          console.error('Error cargando material:', error);
+          setMateriales([]);
+          return;
+        }
+
+        const visible = allMaterial || [];
+
+        // Filtrar: mostrar "para_todas" + material asignado individualmente al usuario
+        if (!user?.id) {
+          // Sin usuario autenticado, solo mostrar para_todas
+          setMateriales(visible.filter(m => m.para_todas));
+          return;
+        }
+
+        // Obtener IDs de material asignado a este usuario
+        const { data: asignaciones } = await supabase
+          .from('material_usuarios')
+          .select('material_id')
+          .eq('usuario_id', user.id);
+
+        const idsAsignados = new Set((asignaciones || []).map(a => a.material_id));
+
+        // Mostrar: para_todas=true OR asignado individualmente
+        setMateriales(visible.filter(m => m.para_todas || idsAsignados.has(m.id)));
       } catch (err) {
         console.error('Error cargando material:', err);
       } finally {
@@ -55,7 +83,7 @@ function Material() {
       }
     };
     load();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const load = async () => {

@@ -62,7 +62,8 @@ src/
 | citas | Sesiones agendadas (fecha, tipo, modalidad) |
 | frases | Frases motivacionales del dia |
 | recetas | Recetas con emoji, categoria, tiempo, calorias |
-| material | eBooks/PDFs |
+| material | eBooks/PDFs (campo para_todas + visible) |
+| material_usuarios | Asignacion de material a clientas individuales (junction table) [v4.3] |
 | videos | Videos y audios por categoria |
 | notificaciones | Notificaciones enviadas por admin |
 | telegram_suscriptores | Suscriptores del bot de Telegram |
@@ -91,6 +92,9 @@ src/
 | v3.0 | Recetas Supabase, Telegram bot, push notifications, multi-tenant |
 | v3.1 | Resiliencia (fallbacks si tablas no existen) + seedData |
 | v4.0 | Sistema de chat clienta-Ana (texto, fotos, videos, realtime, notificaciones) |
+| v4.1 | PDFs de guias reales en public/pdfs/ + seedData actualizado |
+| v4.2 | Fix auth race condition (login→logout→login colgado) + fix Login.js error handling |
+| v4.3 | Sistema de asignacion de material a clientas individuales |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -139,7 +143,14 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 7. Seleccionar la conversacion y responder
 8. Verificar que la clienta recibe la respuesta en tiempo real
 
-### Paso 6: Push Notifications (opcional, puede hacerse despues)
+### Paso 6: Crear tabla material_usuarios en Supabase
+1. Ir a Supabase → SQL Editor
+2. Copiar TODO el contenido de `supabase_material_usuarios.sql`
+3. Ejecutar el SQL
+4. Esto crea: tabla `material_usuarios`, indices y politicas RLS
+5. **Sin esto, la asignacion individual de material NO funciona**
+
+### Paso 7: Push Notifications (opcional, puede hacerse despues)
 1. Generar VAPID keys: `npx web-push generate-vapid-keys`
 2. Copiar la public key al `.env` como `REACT_APP_VAPID_PUBLIC_KEY=...`
 3. Guardar la private key como secreto en Supabase (para edge functions)
@@ -223,6 +234,22 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 2. **Bug fix Login.js**: `signInWithPassword` de Supabase no hace throw, devuelve `{ error }`. El catch nunca atrapaba errores. Ahora se revisa `authError` directamente.
 3. **Fix supabaseClient.js**: se quito `lock: false` y `storage: window.localStorage` (defaults de Supabase son mejores). Se agrego `autoRefreshToken: true` y `detectSessionInUrl: true`.
 4. Boton de logout ya existia en Home.js (verificado)
+
+### Sesion 5 — 2026-02-19 (v4.3: asignacion de material a clientas)
+1. **Nueva tabla `material_usuarios`** (junction table): permite asignar material individual a clientas especificas
+   - Archivo: `supabase_material_usuarios.sql` con tabla, indices y RLS
+   - Admin tiene acceso total, clienta solo lee sus asignaciones
+2. **AdminMaterial.js reescrito completamente**:
+   - Boton "Cargar guias de Ana Bienestar" que inserta los 8 PDFs directamente (aparece cuando la tabla esta vacia)
+   - Modal de asignacion: cuando un material tiene `para_todas: false`, aparece boton para asignar clientas individuales
+   - Checkboxes con lista de clientas, botones "Asignar todas" / "Quitar todas"
+   - Badge mostrando cantidad de clientas asignadas en cada tarjeta
+   - Optimistic UI con rollback on error
+3. **Material.js actualizado**: ahora filtra material segun usuario autenticado
+   - Muestra material con `para_todas: true` (acceso global)
+   - PLUS material asignado individualmente via `material_usuarios`
+   - Usa `useAuth()` para obtener el usuario actual
+4. **Paso manual para Edgardo**: ejecutar `supabase_material_usuarios.sql` en Supabase SQL Editor
 
 ---
 
