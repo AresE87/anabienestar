@@ -12,18 +12,22 @@ const GUIAS_ANA = [
   { titulo: 'SOS Emergencia: Para. Respira. Lee Esto.', descripcion: 'Guarda este PDF en tu celular. Leelo antes de decidir. Para momentos de tentacion.', paginas: 1, url_pdf: '/pdfs/SOS_Emergencia_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
 ];
 
+// Titulos de las guias para detectar duplicados
+const TITULOS_GUIAS = GUIAS_ANA.map(g => g.titulo);
+
 export default function AdminMaterial() {
   const [materiales, setMateriales] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editando, setEditando] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [cargandoGuias, setCargandoGuias] = useState(false);
 
   // Asignacion
-  const [asignandoMat, setAsignandoMat] = useState(null); // material seleccionado para asignar
+  const [asignandoMat, setAsignandoMat] = useState(null);
   const [clientas, setClientas] = useState([]);
-  const [asignaciones, setAsignaciones] = useState([]); // usuario_ids asignados al material actual
+  const [asignaciones, setAsignaciones] = useState([]);
   const [loadingAsign, setLoadingAsign] = useState(false);
 
   const [form, setForm] = useState({
@@ -40,19 +44,29 @@ export default function AdminMaterial() {
   }, []);
 
   const fetchMateriales = async () => {
+    setFetchError(null);
     try {
       const { data, error } = await supabase
         .from('material')
         .select('*')
         .order('created_at', { ascending: false });
-      if (error) throw error;
-      setMateriales(data || []);
+      if (error) {
+        console.error('Error cargando material:', error);
+        setFetchError(error.message);
+        setMateriales([]);
+      } else {
+        setMateriales(data || []);
+      }
     } catch (err) {
       console.error('Error cargando material:', err);
+      setFetchError(err.message || 'Error de conexion');
     } finally {
       setLoading(false);
     }
   };
+
+  // Detectar si las guias de Ana ya estan cargadas
+  const guiasYaCargadas = materiales.some(m => TITULOS_GUIAS.includes(m.titulo));
 
   // Cargar clientas (para el modal de asignacion)
   const fetchClientas = useCallback(async () => {
@@ -96,7 +110,6 @@ export default function AdminMaterial() {
     const yaAsignada = asignaciones.includes(usuarioId);
 
     if (yaAsignada) {
-      // Quitar
       setAsignaciones(prev => prev.filter(id => id !== usuarioId));
       const { error } = await supabase
         .from('material_usuarios')
@@ -105,17 +118,16 @@ export default function AdminMaterial() {
         .eq('usuario_id', usuarioId);
       if (error) {
         console.error('Error quitando asignacion:', error);
-        setAsignaciones(prev => [...prev, usuarioId]); // rollback
+        setAsignaciones(prev => [...prev, usuarioId]);
       }
     } else {
-      // Agregar
       setAsignaciones(prev => [...prev, usuarioId]);
       const { error } = await supabase
         .from('material_usuarios')
         .insert({ material_id: asignandoMat.id, usuario_id: usuarioId });
       if (error) {
         console.error('Error asignando:', error);
-        setAsignaciones(prev => prev.filter(id => id !== usuarioId)); // rollback
+        setAsignaciones(prev => prev.filter(id => id !== usuarioId));
       }
     }
   };
@@ -133,7 +145,7 @@ export default function AdminMaterial() {
     const { error } = await supabase.from('material_usuarios').insert(inserts);
     if (error) {
       console.error('Error asignando a todas:', error);
-      await fetchAsignaciones(asignandoMat.id); // refetch on error
+      await fetchAsignaciones(asignandoMat.id);
     }
   };
 
@@ -179,18 +191,27 @@ export default function AdminMaterial() {
       visible: form.visible,
     };
     try {
-      let error;
+      let res;
       if (editando) {
-        const res = await supabase.from('material').update(datos).eq('id', editando).select();
-        error = res.error;
+        res = await supabase.from('material').update(datos).eq('id', editando).select();
       } else {
-        const res = await supabase.from('material').insert(datos).select();
-        error = res.error;
+        res = await supabase.from('material').insert(datos).select();
       }
-      if (error) {
-        console.error('Error Supabase:', error);
-        alert('Error: ' + error.message);
-        return;
+      if (res.error) {
+        // Fallback: intentar sin para_todas si la columna no existe
+        if (res.error.message && res.error.message.includes('para_todas')) {
+          const { para_todas, ...datosSimple } = datos;
+          const res2 = editando
+            ? await supabase.from('material').update(datosSimple).eq('id', editando).select()
+            : await supabase.from('material').insert(datosSimple).select();
+          if (res2.error) {
+            alert('Error: ' + res2.error.message);
+            return;
+          }
+        } else {
+          alert('Error: ' + res.error.message);
+          return;
+        }
       }
       await fetchMateriales();
       setForm({ titulo: '', descripcion: '', paginas: '', url_pdf: '', para_todas: true, visible: true });
@@ -221,8 +242,8 @@ export default function AdminMaterial() {
       descripcion: mat.descripcion || '',
       paginas: mat.paginas ? String(mat.paginas) : '',
       url_pdf: mat.url_pdf || '',
-      para_todas: mat.para_todas,
-      visible: mat.visible,
+      para_todas: mat.para_todas !== undefined ? mat.para_todas : true,
+      visible: mat.visible !== undefined ? mat.visible : true,
     });
     setEditando(mat.id);
     setShowForm(true);
@@ -234,14 +255,30 @@ export default function AdminMaterial() {
     setShowForm(false);
   };
 
-  // Cargar las 8 guias de Ana Bienestar
+  // Cargar las 8 guias de Ana Bienestar con fallback
   const handleCargarGuias = async () => {
-    if (!window.confirm('¿Cargar las 8 guías de Ana Bienestar? Si ya existen, se duplicarán.')) return;
+    if (guiasYaCargadas) {
+      alert('Las guias de Ana Bienestar ya estan cargadas.');
+      return;
+    }
+    if (!window.confirm('¿Cargar las 8 guias de Ana Bienestar?')) return;
     setCargandoGuias(true);
     try {
+      // Intentar con todas las columnas
       const { error } = await supabase.from('material').insert(GUIAS_ANA).select();
       if (error) {
-        alert('Error: ' + error.message);
+        // Fallback: si falla por columna para_todas, intentar sin ella
+        if (error.message && (error.message.includes('para_todas') || error.message.includes('column'))) {
+          const guiasSinParaTodas = GUIAS_ANA.map(({ para_todas, ...rest }) => rest);
+          const { error: error2 } = await supabase.from('material').insert(guiasSinParaTodas).select();
+          if (error2) {
+            alert('Error cargando guias: ' + error2.message + '\n\nAsegurate de haber ejecutado supabase_material_alter.sql en el SQL Editor de Supabase.');
+          } else {
+            await fetchMateriales();
+          }
+        } else {
+          alert('Error cargando guias: ' + error.message + '\n\nAsegurate de haber ejecutado supabase_material_alter.sql en el SQL Editor de Supabase.');
+        }
       } else {
         await fetchMateriales();
       }
@@ -256,16 +293,20 @@ export default function AdminMaterial() {
 
   return (
     <div style={s.container}>
+      {/* Header */}
       <div style={s.header}>
         <div>
-          <h2 style={s.title}>📚 Material</h2>
+          <h2 style={s.title}>Material</h2>
           <p style={s.subtitle}>{materiales.length} recurso{materiales.length !== 1 ? 's' : ''}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {materiales.length === 0 && (
-            <button onClick={handleCargarGuias} disabled={cargandoGuias} style={{ ...s.addBtn, backgroundColor: '#b8956a' }}>
-              {cargandoGuias ? 'Cargando...' : '📄 Cargar guías'}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!guiasYaCargadas && (
+            <button onClick={handleCargarGuias} disabled={cargandoGuias} style={s.guiasBtn}>
+              {cargandoGuias ? 'Cargando...' : '📄 Cargar guias de Ana'}
             </button>
+          )}
+          {guiasYaCargadas && (
+            <span style={s.guiasBadge}>✅ Guias cargadas</span>
           )}
           <button onClick={() => { resetForm(); setShowForm(true); }} style={s.addBtn}>
             + Agregar material
@@ -273,21 +314,30 @@ export default function AdminMaterial() {
         </div>
       </div>
 
+      {/* Error de conexion */}
+      {fetchError && (
+        <div style={s.errorBox}>
+          <p style={s.errorText}>Error al cargar materiales: {fetchError}</p>
+          <button onClick={fetchMateriales} style={s.retryBtn}>Reintentar</button>
+        </div>
+      )}
+
+      {/* Formulario (oculto por defecto, se muestra al hacer click en + Agregar material) */}
       {showForm && (
         <div style={s.formCard}>
           <h3 style={s.formTitle}>{editando ? 'Editar material' : 'Nuevo material'}</h3>
-          <label style={s.label}>Título *</label>
-          <input style={s.input} value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ej: Guía de alimentación consciente" />
-          <label style={s.label}>Descripción</label>
-          <textarea style={{ ...s.input, minHeight: 80, resize: 'vertical' }} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Breve descripción del contenido" />
+          <label style={s.label}>Titulo *</label>
+          <input style={s.input} value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ej: Guia de alimentacion consciente" />
+          <label style={s.label}>Descripcion</label>
+          <textarea style={{ ...s.input, minHeight: 80, resize: 'vertical' }} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Breve descripcion del contenido" />
           <div style={s.row}>
             <div style={{ flex: 1 }}>
-              <label style={s.label}>Páginas</label>
+              <label style={s.label}>Paginas</label>
               <input style={s.input} type="number" value={form.paginas} onChange={(e) => setForm({ ...form, paginas: e.target.value })} placeholder="Ej: 24" />
             </div>
             <div style={{ flex: 2 }}>
               <label style={s.label}>URL del PDF</label>
-              <input style={s.input} value={form.url_pdf} onChange={(e) => setForm({ ...form, url_pdf: e.target.value })} placeholder="https://..." />
+              <input style={s.input} value={form.url_pdf} onChange={(e) => setForm({ ...form, url_pdf: e.target.value })} placeholder="/pdfs/mi-archivo.pdf o https://..." />
             </div>
           </div>
           <div style={s.checkboxRow}>
@@ -309,35 +359,38 @@ export default function AdminMaterial() {
         </div>
       )}
 
-      {materiales.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <p style={s.empty}>No hay material todavía.</p>
-          <button onClick={handleCargarGuias} disabled={cargandoGuias} style={{ ...s.addBtn, backgroundColor: '#b8956a', marginTop: 12 }}>
-            {cargandoGuias ? 'Cargando...' : '📄 Cargar 8 guías de Ana Bienestar'}
+      {/* Lista de materiales */}
+      {!fetchError && materiales.length === 0 ? (
+        <div style={s.emptyState}>
+          <div style={s.emptyIcon}>📚</div>
+          <p style={s.emptyTitle}>No hay material todavia</p>
+          <p style={s.emptyDesc}>Carga las guias de Ana o agrega material nuevo con el boton de arriba.</p>
+          <button onClick={handleCargarGuias} disabled={cargandoGuias} style={{ ...s.guiasBtn, marginTop: 16 }}>
+            {cargandoGuias ? 'Cargando...' : '📄 Cargar 8 guias de Ana Bienestar'}
           </button>
         </div>
       ) : (
         <div style={s.list}>
           {materiales.map((mat) => (
-            <div key={mat.id} style={{ ...s.card, opacity: mat.visible ? 1 : 0.5 }}>
+            <div key={mat.id} style={{ ...s.card, opacity: mat.visible === false ? 0.5 : 1 }}>
               <div style={s.cardHeader}>
                 <div style={{ flex: 1 }}>
                   <p style={s.cardTitle}>📄 {mat.titulo}</p>
                   {mat.descripcion && <p style={s.cardDesc}>{mat.descripcion}</p>}
                   <p style={s.cardMeta}>
-                    {mat.paginas ? mat.paginas + ' págs' : ''}
+                    {mat.paginas ? mat.paginas + ' pags' : ''}
                     {mat.paginas ? ' · ' : ''}
-                    {mat.para_todas ? '👥 Todas las clientas' : '👤 Asignación individual'}
+                    {mat.para_todas === false ? '👤 Asignacion individual' : '👥 Todas las clientas'}
                   </p>
                 </div>
                 <div style={s.cardActions}>
-                  {!mat.para_todas && (
+                  {mat.para_todas === false && (
                     <button onClick={() => handleOpenAsignar(mat)} style={s.assignBtn} title="Asignar clientas">
                       👥
                     </button>
                   )}
                   <button onClick={() => toggleVisible(mat.id, mat.visible)} style={s.toggleBtn} title={mat.visible ? 'Ocultar' : 'Mostrar'}>
-                    {mat.visible ? '👁️' : '🚫'}
+                    {mat.visible === false ? '🚫' : '👁️'}
                   </button>
                   <button onClick={() => handleEditar(mat)} style={s.editBtn}>✏️</button>
                   <button onClick={() => handleEliminar(mat.id, mat.titulo)} style={s.deleteBtn}>🗑️</button>
@@ -417,6 +470,18 @@ const s = {
   title: { margin: 0, fontSize: 22, color: '#3d5c41', fontFamily: 'Playfair Display, serif' },
   subtitle: { margin: '4px 0 0', fontSize: 14, color: '#7a9e7e', fontFamily: 'Jost, sans-serif' },
   addBtn: { padding: '10px 20px', backgroundColor: '#3d5c41', color: 'white', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Jost, sans-serif', whiteSpace: 'nowrap' },
+  guiasBtn: { padding: '10px 20px', backgroundColor: '#b8956a', color: 'white', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Jost, sans-serif', whiteSpace: 'nowrap' },
+  guiasBadge: { padding: '10px 16px', backgroundColor: '#eaf2eb', color: '#3d5c41', borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: 'Jost, sans-serif', display: 'flex', alignItems: 'center' },
+  // Error box
+  errorBox: { backgroundColor: '#fff5f5', border: '2px solid #ffcccc', borderRadius: 12, padding: 20, marginBottom: 20, textAlign: 'center' },
+  errorText: { margin: '0 0 12px', fontSize: 14, color: '#c44', fontFamily: 'Jost, sans-serif' },
+  retryBtn: { padding: '8px 20px', backgroundColor: '#c44', color: 'white', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Jost, sans-serif' },
+  // Empty state
+  emptyState: { textAlign: 'center', padding: '40px 20px', backgroundColor: 'white', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' },
+  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  emptyTitle: { margin: 0, fontSize: 18, fontWeight: 600, color: '#3d5c41', fontFamily: 'Playfair Display, serif' },
+  emptyDesc: { margin: '8px 0 0', fontSize: 14, color: '#7a9e7e', fontFamily: 'Jost, sans-serif', lineHeight: 1.5 },
+  // Form
   formCard: { backgroundColor: 'white', borderRadius: 16, padding: 24, marginBottom: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   formTitle: { margin: '0 0 16px', fontSize: 18, color: '#3d5c41', fontFamily: 'Playfair Display, serif' },
   label: { display: 'block', fontSize: 13, color: '#7a9e7e', fontWeight: 500, marginBottom: 6, fontFamily: 'Jost, sans-serif' },
@@ -427,6 +492,7 @@ const s = {
   formButtons: { display: 'flex', gap: 10, justifyContent: 'flex-end' },
   cancelBtn: { padding: '10px 20px', backgroundColor: '#f8f4ee', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#7a9e7e', cursor: 'pointer', fontFamily: 'Jost, sans-serif' },
   saveBtn: { padding: '10px 20px', backgroundColor: '#3d5c41', color: 'white', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Jost, sans-serif' },
+  // List and cards
   empty: { textAlign: 'center', color: '#7a9e7e', padding: 20, fontSize: 15, fontFamily: 'Jost, sans-serif', margin: 0 },
   list: { display: 'flex', flexDirection: 'column', gap: 12 },
   card: { backgroundColor: 'white', borderRadius: 14, padding: '16px 20px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)', transition: 'opacity 0.2s' },

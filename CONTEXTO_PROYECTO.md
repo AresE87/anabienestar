@@ -95,6 +95,7 @@ src/
 | v4.1 | PDFs de guias reales en public/pdfs/ + seedData actualizado |
 | v4.2 | Fix auth race condition (login→logout→login colgado) + fix Login.js error handling |
 | v4.3 | Sistema de asignacion de material a clientas individuales |
+| v4.3.1 | Fix material admin: SQL migracion columnas + mejor UX carga guias |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -250,6 +251,19 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - PLUS material asignado individualmente via `material_usuarios`
    - Usa `useAuth()` para obtener el usuario actual
 4. **Paso manual para Edgardo**: ejecutar `supabase_material_usuarios.sql` en Supabase SQL Editor
+
+### Sesion 6 — 2026-02-19 (v4.3.1: fix material admin + SQL migracion)
+1. **Problema**: las guias no aparecian en el panel admin de Material — la tabla `material` no tenia las columnas `para_todas` ni `visible`
+2. **SQL de migracion**: `supabase_material_alter.sql` agrega las columnas faltantes de forma segura (idempotente)
+3. **AdminMaterial.js mejorado**:
+   - Boton "Cargar guias de Ana" ahora siempre visible en el header (no solo cuando lista vacia)
+   - Detecta si las guias ya estan cargadas (por titulo) para evitar duplicados
+   - Muestra "✅ Guias cargadas" cuando ya estan en la BD
+   - Fallback: si el insert falla por columna faltante, reintenta sin `para_todas`
+   - Nuevo estado de error visible con boton "Reintentar"
+   - Empty state mejorado con icono y texto descriptivo
+   - Formulario "+ Agregar material" para que Ana suba nuevos documentos a futuro
+4. **Paso manual para Edgardo**: ejecutar `supabase_material_alter.sql` en Supabase SQL Editor
 
 ---
 
