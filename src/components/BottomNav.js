@@ -5,6 +5,7 @@ const navItems = [
   { path: '/', label: 'Inicio', icon: '🏠' },
   { path: '/progreso', label: 'Progreso', icon: '📊' },
   { path: '/chat', label: 'Chat', icon: '💬' },
+  { path: '/material', label: 'Material', icon: '📚' },
   { path: '/recetas', label: 'Recetas', icon: '🍽️' },
   { path: '/citas', label: 'Citas', icon: '📅' },
 ];
@@ -13,7 +14,7 @@ function BottomNav() {
   const location = useLocation();
 
   return (
-    <nav className="bottom-nav" aria-label="Navegación principal">
+    <nav className="bottom-nav" aria-label="Navegacion principal">
       {navItems.map(({ path, label, icon }) => {
         const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
         return (

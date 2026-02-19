@@ -96,6 +96,7 @@ src/
 | v4.2 | Fix auth race condition (login→logout→login colgado) + fix Login.js error handling |
 | v4.3 | Sistema de asignacion de material a clientas individuales |
 | v4.3.1 | Fix material admin: SQL migracion columnas + mejor UX carga guias |
+| v4.4 | Login OAuth (Google/Apple) + BottomNav 6 pestanas + auto-crear perfil |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -264,6 +265,25 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Empty state mejorado con icono y texto descriptivo
    - Formulario "+ Agregar material" para que Ana suba nuevos documentos a futuro
 4. **Paso manual para Edgardo**: ejecutar `supabase_material_alter.sql` en Supabase SQL Editor
+
+### Sesion 7 — 2026-02-19 (v4.4: OAuth Google/Apple + BottomNav 6 pestanas)
+1. **Login con Google y Apple**:
+   - Login.js: botones "Continuar con Google" y "Continuar con Apple" debajo del form
+   - Iconos SVG inline (sin dependencias externas)
+   - Divider "o continuar con" separa form de botones OAuth
+   - Usa `signInWithOAuth` de Supabase con redirect a `window.location.origin`
+2. **Auto-crear perfil para usuarios nuevos**:
+   - `supabase_oauth_setup.sql`: trigger PostgreSQL en `auth.users` INSERT
+   - Crea automaticamente fila en `usuarios` con rol='clienta', nombre del provider
+   - `ON CONFLICT (id) DO NOTHING` para no afectar usuarios existentes
+3. **BottomNav rediseñado con 6 pestañas**:
+   - Agregada pestana Material (📚) que faltaba desde v4.0
+   - Items: Inicio, Progreso, Chat, Material, Recetas, Citas
+   - CSS optimizado para 390px: iconos 1.1rem, labels 0.6rem, padding reducido
+4. **Pasos manuales para Edgardo**:
+   - Ejecutar `supabase_oauth_setup.sql` en SQL Editor
+   - Habilitar Google provider en Supabase Dashboard → Authentication → Providers
+   - (Opcional) Habilitar Apple provider (requiere Apple Developer account)
 
 ---
 
