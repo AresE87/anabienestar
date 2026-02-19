@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 
 function Recetas() {
   const [selectedFilter, setSelectedFilter] = useState('Todas');
+  const [recetas, setRecetas] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Colores (iguales a Home.js)
   const colors = {
     sage: '#7a9e7e',
     sageDark: '#3d5c41',
@@ -11,88 +13,54 @@ function Recetas() {
     gold: '#b8956a'
   };
 
-  // Datos de recetas
-  const allRecipes = [
-    {
-      id: 1,
-      name: 'Tostada de palta con huevo',
-      emoji: '🥑',
-      category: 'Desayuno',
-      time: '10 min',
-      calories: '280 kcal'
-    },
-    {
-      id: 2,
-      name: 'Bowl de quinoa con verduras',
-      emoji: '🥗',
-      category: 'Almuerzo',
-      time: '20 min',
-      calories: '420 kcal'
-    },
-    {
-      id: 3,
-      name: 'Huevos revueltos con espinaca',
-      emoji: '🍳',
-      category: 'Desayuno',
-      time: '8 min',
-      calories: '220 kcal'
-    },
-    {
-      id: 4,
-      name: 'Sopa de lentejas express',
-      emoji: '🍲',
-      category: 'Cena',
-      time: '25 min',
-      calories: '310 kcal'
-    },
-    {
-      id: 5,
-      name: 'Snack de manzana y almendras',
-      emoji: '🍎',
-      category: 'Snack',
-      time: '2 min',
-      calories: '150 kcal'
-    },
-    {
-      id: 6,
-      name: 'Salmón al horno',
-      emoji: '🐟',
-      category: 'Cena',
-      time: '30 min',
-      calories: '380 kcal'
-    },
-    {
-      id: 7,
-      name: 'Smoothie verde',
-      emoji: '🥤',
-      category: 'Desayuno',
-      time: '5 min',
-      calories: '190 kcal'
-    }
-  ];
+  // Cargar recetas de Supabase
+  useEffect(() => {
+    const loadRecetas = async () => {
+      setLoading(true);
+      try {
+        let q = supabase
+          .from('recetas')
+          .select('*')
+          .eq('visible', true)
+          .order('created_at', { ascending: false });
 
-  // Filtrar recetas según el filtro seleccionado
-  const filteredRecipes = selectedFilter === 'Todas'
-    ? allRecipes
-    : allRecipes.filter(recipe => {
-        // Mapear "Snacks" a "Snack" para coincidir con los datos
-        const filterCategory = selectedFilter === 'Snacks' ? 'Snack' : selectedFilter;
-        return recipe.category === filterCategory;
-      });
+        if (selectedFilter !== 'Todas') {
+          const filterCategory = selectedFilter === 'Snacks' ? 'Snack' : selectedFilter;
+          q = q.eq('categoria', filterCategory);
+        }
+
+        const { data, error } = await q;
+        if (!error) setRecetas(data || []);
+      } catch (err) {
+        console.error('Error cargando recetas:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadRecetas();
+  }, [selectedFilter]);
 
   const filters = ['Todas', 'Desayuno', 'Almuerzo', 'Cena', 'Snacks'];
 
-  // Estilos
+  const EMOJI_CATEGORIA = {
+    'Desayuno': '🥣',
+    'Almuerzo': '🥗',
+    'Cena': '🍲',
+    'Snack': '🍎',
+    'Snacks': '🍎'
+  };
+
   const styles = {
     container: {
       padding: '0',
       minHeight: 'calc(100vh - 80px)',
-      background: colors.cream
+      background: colors.cream,
+      paddingBottom: '100px'
     },
     header: {
       background: colors.cream,
       padding: '2rem 1.25rem 1.5rem',
-      borderBottom: `1px solid rgba(61, 92, 65, 0.1)`
+      borderBottom: '1px solid rgba(61, 92, 65, 0.1)'
     },
     headerTitle: {
       fontFamily: "'Playfair Display', Georgia, serif",
@@ -115,12 +83,9 @@ function Recetas() {
       padding: '1rem 1.25rem',
       overflowX: 'auto',
       background: colors.cream,
-      borderBottom: `1px solid rgba(61, 92, 65, 0.1)`,
+      borderBottom: '1px solid rgba(61, 92, 65, 0.1)',
       scrollbarWidth: 'none',
       msOverflowStyle: 'none'
-    },
-    filtersContainerScrollbar: {
-      WebkitScrollbar: { display: 'none' }
     },
     filterChip: {
       padding: '0.5rem 1.25rem',
@@ -145,6 +110,14 @@ function Recetas() {
       padding: '1rem 1.25rem',
       background: colors.cream
     },
+    loadingText: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.95rem',
+      color: colors.sageDark,
+      opacity: 0.7,
+      textAlign: 'center',
+      padding: '2rem'
+    },
     recipeItem: {
       display: 'flex',
       alignItems: 'center',
@@ -156,10 +129,6 @@ function Recetas() {
       boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
       cursor: 'pointer',
       transition: 'all 0.2s'
-    },
-    recipeItemHover: {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
     },
     recipeEmoji: {
       width: '52px',
@@ -194,18 +163,33 @@ function Recetas() {
       color: colors.sage,
       fontWeight: 300,
       flexShrink: 0
+    },
+    badgeNew: {
+      display: 'inline-flex',
+      padding: '0.2rem 0.5rem',
+      borderRadius: '1rem',
+      background: '#fff4e6',
+      color: colors.gold,
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.7rem',
+      fontWeight: 500,
+      marginLeft: '0.5rem'
     }
+  };
+
+  const isNew = (createdAt) => {
+    if (!createdAt) return false;
+    const diff = (new Date() - new Date(createdAt)) / (1000 * 60 * 60 * 24);
+    return diff <= 7;
   };
 
   return (
     <div style={styles.container}>
-      {/* Header */}
       <div style={styles.header}>
-        <h1 style={styles.headerTitle}>Tus Recetas 🥗</h1>
+        <h1 style={styles.headerTitle}>Tus Recetas</h1>
         <p style={styles.headerSubtitle}>Plan personalizado por Ana Karina</p>
       </div>
 
-      {/* Filtros horizontales */}
       <div style={styles.filtersContainer}>
         {filters.map((filter) => (
           <button
@@ -221,33 +205,59 @@ function Recetas() {
         ))}
       </div>
 
-      {/* Lista de recetas */}
       <div style={styles.recipesList}>
-        {filteredRecipes.map((recipe) => (
-          <div
-            key={recipe.id}
-            style={styles.recipeItem}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.05)';
-            }}
-          >
-            <div style={styles.recipeEmoji}>
-              {recipe.emoji}
-            </div>
-            <div style={styles.recipeContent}>
-              <div style={styles.recipeName}>{recipe.name}</div>
-              <div style={styles.recipeMetadata}>
-                {recipe.category} · {recipe.time} · {recipe.calories}
-              </div>
-            </div>
-            <div style={styles.recipeArrow}>›</div>
+        {loading ? (
+          <div style={styles.loadingText}>Cargando recetas...</div>
+        ) : recetas.length === 0 ? (
+          <div style={styles.loadingText}>
+            {selectedFilter === 'Todas'
+              ? 'No hay recetas disponibles todavia.'
+              : `No hay recetas de ${selectedFilter}.`}
           </div>
-        ))}
+        ) : (
+          recetas.map((recipe) => (
+            <div
+              key={recipe.id}
+              style={styles.recipeItem}
+              onClick={() => {
+                if (recipe.url && recipe.url.trim()) {
+                  window.open(recipe.url.trim(), '_blank', 'noopener,noreferrer');
+                }
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.05)';
+              }}
+            >
+              <div style={styles.recipeEmoji}>
+                {recipe.emoji || EMOJI_CATEGORIA[recipe.categoria] || '🍽️'}
+              </div>
+              <div style={styles.recipeContent}>
+                <div style={styles.recipeName}>
+                  {recipe.nombre}
+                  {isNew(recipe.created_at) && (
+                    <span style={styles.badgeNew}>Nuevo</span>
+                  )}
+                </div>
+                <div style={styles.recipeMetadata}>
+                  {recipe.categoria}
+                  {recipe.tiempo ? ` · ${recipe.tiempo}` : ''}
+                  {recipe.calorias ? ` · ${recipe.calorias}` : ''}
+                </div>
+                {recipe.descripcion && (
+                  <div style={{ ...styles.recipeMetadata, marginTop: '0.25rem', opacity: 0.5, fontSize: '0.8rem' }}>
+                    {recipe.descripcion}
+                  </div>
+                )}
+              </div>
+              {recipe.url && <div style={styles.recipeArrow}>›</div>}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

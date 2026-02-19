@@ -287,6 +287,7 @@ function Material() {
     if (url && url.trim()) window.open(url.trim(), '_blank', 'noopener,noreferrer');
   };
 
+  // eslint-disable-next-line no-unused-vars
   const loading = loadingMaterial && loadingVideos;
 
   return (

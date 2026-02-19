@@ -337,6 +337,7 @@ export default function AdminClientas() {
   };
 
   const ficha = selectedFicha;
+  // eslint-disable-next-line no-unused-vars
   const semanaActual = ficha?.fecha_inicio
     ? semanasDesdeInicio(ficha.fecha_inicio)
     : (ficha?.semana_actual ?? 1);

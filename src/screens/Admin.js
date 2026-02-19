@@ -5,6 +5,7 @@ import AdminMaterial from '../components/AdminMaterial';
 import AdminVideos from '../components/AdminVideos';
 import AdminClientas from '../components/AdminClientas';
 import AdminFichas from '../components/AdminFichas';
+import AdminRecetas from '../components/AdminRecetas';
 
 const colors = {
   sageDark: '#3d5c41',
@@ -68,6 +69,8 @@ function Admin() {
   const [notifMensaje, setNotifMensaje] = useState('');
   const [notifHistorial, setNotifHistorial] = useState([]);
   const [enviandoNotif, setEnviandoNotif] = useState(false);
+  const [enviarPorTelegram, setEnviarPorTelegram] = useState(false);
+  const [telegramStats, setTelegramStats] = useState({ total: 0, activos: 0 });
 
   // ── Agenda state ──
   const [citasSemana, setCitasSemana] = useState([]);
@@ -87,6 +90,7 @@ function Admin() {
     { id: 'fichas', label: 'Fichas', icon: '📋' },
     { id: 'material', label: 'Material', icon: '📚' },
     { id: 'videos', label: 'Videos', icon: '🎥' },
+    { id: 'recetas', label: 'Recetas', icon: '🍽️' },
     { id: 'notificaciones', label: 'Notificaciones', icon: '🔔' },
     { id: 'agenda', label: 'Agenda', icon: '📅' },
     { id: 'configuracion', label: 'Configuración', icon: '⚙️' }
@@ -139,19 +143,19 @@ function Admin() {
 
   const loadNotificaciones = useCallback(async () => {
     try {
-      const { data: usuarios } = await supabase
-        .from('usuarios')
-        .select('id, nombre, email')
-        .eq('rol', 'clienta')
-        .order('nombre');
-      setNotifClientas(usuarios || []);
-
-      const { data: historial } = await supabase
-        .from('notificaciones')
-        .select('*, usuarios:destinatario_id(nombre)')
-        .order('created_at', { ascending: false })
-        .limit(20);
-      setNotifHistorial(historial || []);
+      const [usuariosRes, historialRes, telegramRes] = await Promise.all([
+        supabase.from('usuarios').select('id, nombre, email').eq('rol', 'clienta').order('nombre'),
+        supabase.from('notificaciones').select('*, usuarios:destinatario_id(nombre)').order('created_at', { ascending: false }).limit(20),
+        supabase.from('telegram_suscriptores').select('id, activo')
+      ]);
+      setNotifClientas(usuariosRes.data || []);
+      setNotifHistorial(historialRes.data || []);
+      // Telegram stats
+      const tgData = telegramRes.data || [];
+      setTelegramStats({
+        total: tgData.length,
+        activos: tgData.filter(t => t.activo).length
+      });
     } catch (err) {
       console.error('Error cargando notificaciones:', err);
     }
@@ -210,6 +214,7 @@ function Admin() {
     if (!notifMensaje.trim()) return;
     setEnviandoNotif(true);
     try {
+      // Save to database
       const datos = {
         mensaje: notifMensaje.trim(),
         tipo: notifTipo,
@@ -222,8 +227,27 @@ function Admin() {
         alert('Error: ' + error.message);
         return;
       }
+
+      // Also send via Telegram if enabled
+      if (enviarPorTelegram && telegramStats.activos > 0) {
+        try {
+          const { data: fnData, error: fnError } = await supabase.functions.invoke('send-telegram', {
+            body: {
+              type: 'message',
+              message: notifMensaje.trim(),
+              destinatario_id: notifDestinatario === 'todas' ? 'todas' : notifDestinatario
+            }
+          });
+          if (fnError) console.error('Error Telegram:', fnError);
+          else console.log('Telegram enviado:', fnData);
+        } catch (tgErr) {
+          console.error('Error llamando Edge Function:', tgErr);
+        }
+      }
+
       setNotifMensaje('');
       setNotifDestinatario('todas');
+      setEnviarPorTelegram(false);
       loadNotificaciones();
     } catch (err) {
       alert('Error al enviar: ' + (err.message || err));
@@ -518,6 +542,15 @@ function Admin() {
             value={notifMensaje}
             onChange={(e) => setNotifMensaje(e.target.value)}
           />
+          {/* Telegram toggle */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', color: colors.sageDark, cursor: 'pointer' }}>
+            <input type="checkbox" checked={enviarPorTelegram} onChange={(e) => setEnviarPorTelegram(e.target.checked)} />
+            Enviar tambien por Telegram
+            {telegramStats.activos > 0 && (
+              <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({telegramStats.activos} conectados)</span>
+            )}
+          </label>
+
           <button
             style={{ ...styles.buttonPrimary, opacity: enviandoNotif || !notifMensaje.trim() ? 0.5 : 1 }}
             onClick={handleEnviarNotificacion}
@@ -733,6 +766,7 @@ function Admin() {
       case 'fichas': return <AdminFichas />;
       case 'material': return <AdminMaterial />;
       case 'videos': return <AdminVideos />;
+      case 'recetas': return <AdminRecetas />;
       case 'notificaciones': return renderNotificaciones();
       case 'agenda': return renderAgenda();
       case 'configuracion': return renderConfiguracion();

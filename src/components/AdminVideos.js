@@ -221,11 +221,37 @@ export default function AdminVideos() {
                   <button onClick={() => handleEliminar(vid.id, vid.titulo)} style={s.deleteBtn}>🗑️</button>
                 </div>
               </div>
-              {vid.url && (
-                <a href={vid.url} target="_blank" rel="noopener noreferrer" style={s.linkVideo}>
-                  🔗 Abrir {vid.tipo === 'audio' ? 'audio' : 'video'}
-                </a>
-              )}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: 8, alignItems: 'center' }}>
+                {vid.url && (
+                  <a href={vid.url} target="_blank" rel="noopener noreferrer" style={s.linkVideo}>
+                    🔗 Abrir {vid.tipo === 'audio' ? 'audio' : 'video'}
+                  </a>
+                )}
+                {vid.url && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const { data, error } = await supabase.functions.invoke('send-telegram', {
+                          body: {
+                            type: vid.tipo || 'video',
+                            message: vid.descripcion || '',
+                            url: vid.url,
+                            titulo: vid.titulo,
+                            destinatario_id: 'todas'
+                          }
+                        });
+                        if (error) alert('Error: ' + error.message);
+                        else alert('Enviado por Telegram a ' + (data?.sent || 0) + ' clientas');
+                      } catch (err) {
+                        alert('Error: ' + (err.message || 'No se pudo enviar. Verifica que la Edge Function este deployada.'));
+                      }
+                    }}
+                    style={{ padding: '4px 10px', background: '#0088cc', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontFamily: 'Jost, sans-serif' }}
+                  >
+                    📨 Telegram
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import { isPushSupported, getPermissionState, subscribeToPush } from '../utils/pushNotifications';
 
 // ── Datos estáticos ───────────────────────────────
 const CHECKLIST_ITEMS = [
@@ -19,11 +20,11 @@ const MOODS = [
   { id: 'fire', emoji: '🔥', label: 'Imparable' },
 ];
 
-const FRASE_FALLBACK = 'Cada pequeño paso cuenta. No necesitás ser perfecta, necesitás ser constante. 💚';
+const FRASE_FALLBACK = 'Cada pequeño paso cuenta. No necesitas ser perfecta, necesitas ser constante.';
 
-const RECETA_HOY = {
+const RECETA_FALLBACK = {
   emoji: '🥗',
-  nombre: 'Bowl mediterráneo',
+  nombre: 'Bowl mediterraneo',
   tiempo: '20 min',
   calorias: '380 kcal',
 };
@@ -38,30 +39,54 @@ export default function Home() {
     moodLoaded,
     setMood,
     racha,
+    userId,
   } = useApp();
 
   const [showDiaDificil, setShowDiaDificil] = useState(false);
   const [fraseDelDia, setFraseDelDia] = useState(FRASE_FALLBACK);
+  const [recetaHoy, setRecetaHoy] = useState(RECETA_FALLBACK);
+  const [showPushBanner, setShowPushBanner] = useState(false);
 
-  // Fetch frase del día from Supabase
+  // Fetch frase del dia + receta random from Supabase
   useEffect(() => {
-    const fetchFrase = async () => {
+    const fetchData = async () => {
       try {
-        const { data } = await supabase
-          .from('frases')
-          .select('texto')
-          .eq('activa', true);
-        if (data && data.length > 0) {
-          // Pick a random active frase
-          const idx = Math.floor(Math.random() * data.length);
-          setFraseDelDia(data[idx].texto);
+        const [frasesRes, recetasRes] = await Promise.all([
+          supabase.from('frases').select('texto').eq('activa', true),
+          supabase.from('recetas').select('emoji, nombre, tiempo, calorias').eq('visible', true)
+        ]);
+
+        if (frasesRes.data && frasesRes.data.length > 0) {
+          const idx = Math.floor(Math.random() * frasesRes.data.length);
+          setFraseDelDia(frasesRes.data[idx].texto);
+        }
+
+        if (recetasRes.data && recetasRes.data.length > 0) {
+          const idx = Math.floor(Math.random() * recetasRes.data.length);
+          setRecetaHoy(recetasRes.data[idx]);
         }
       } catch (err) {
-        console.error('Error cargando frase:', err);
+        console.error('Error cargando datos:', err);
       }
     };
-    fetchFrase();
+    fetchData();
   }, []);
+
+  // Show push notification banner if supported and not yet granted
+  useEffect(() => {
+    if (isPushSupported() && getPermissionState() === 'default') {
+      // Show banner after a short delay
+      const timer = setTimeout(() => setShowPushBanner(true), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleEnablePush = async () => {
+    if (userId) {
+      await subscribeToPush(userId);
+    }
+    setShowPushBanner(false);
+  };
 
   const completados = Object.values(checklist).filter(Boolean).length;
 
@@ -108,13 +133,45 @@ export default function Home() {
         <p style={styles.fraseAuthor}>— Ana Karina</p>
       </div>
 
+      {/* ── Push Notification Banner ──────────────── */}
+      {showPushBanner && (
+        <div style={{
+          margin: '12px 16px 0',
+          padding: '14px 18px',
+          backgroundColor: '#fff4e6',
+          borderRadius: 16,
+          border: '1px solid #b8956a',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ fontSize: 24 }}>🔔</span>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#3d5c41' }}>Activa las notificaciones</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#7a9e7e' }}>Recibiras recordatorios de Ana Karina</p>
+          </div>
+          <button
+            onClick={handleEnablePush}
+            style={{ padding: '8px 16px', backgroundColor: '#3d5c41', color: 'white', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Jost, sans-serif' }}
+          >
+            Activar
+          </button>
+          <button
+            onClick={() => setShowPushBanner(false)}
+            style={{ background: 'none', border: 'none', color: '#999', fontSize: 18, cursor: 'pointer', padding: 4 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ── Receta de hoy ───────────────────────── */}
       <div style={styles.recetaCard}>
-        <span style={styles.recetaEmoji}>{RECETA_HOY.emoji}</span>
+        <span style={styles.recetaEmoji}>{recetaHoy.emoji || '🥗'}</span>
         <div style={{ flex: 1 }}>
-          <p style={styles.recetaNombre}>{RECETA_HOY.nombre}</p>
+          <p style={styles.recetaNombre}>{recetaHoy.nombre}</p>
           <p style={styles.recetaInfo}>
-            {RECETA_HOY.tiempo} · {RECETA_HOY.calorias}
+            {recetaHoy.tiempo || ''}{recetaHoy.tiempo && recetaHoy.calorias ? ' · ' : ''}{recetaHoy.calorias || ''}
           </p>
         </div>
         <span style={styles.recetaArrow}>→</span>
