@@ -48,14 +48,18 @@ export async function seedAllData() {
     const { data: existing } = await supabase.from('material').select('id').limit(1);
     if (!existing || existing.length === 0) {
       const material = [
-        { titulo: 'Guia de alimentacion consciente', descripcion: 'Todo sobre nutricion balanceada', paginas: 24, visible: true },
-        { titulo: 'Plan de 12 semanas', descripcion: 'Tu roadmap completo para el programa', paginas: 15, visible: true },
-        { titulo: 'Recetario saludable', descripcion: 'Mas de 30 recetas faciles y nutritivas', paginas: 40, visible: true },
-        { titulo: 'Mindful eating - Guia practica', descripcion: 'Aprende a comer con consciencia', paginas: 18, visible: true },
+        { titulo: 'Guia de Bienestar Integral', descripcion: 'Tu programa de transformacion en 12 semanas. Mente, cuerpo y alma en equilibrio.', paginas: 8, url_pdf: '/pdfs/Guia_Bienestar_Integral_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'Guia de Salud Digestiva', descripcion: 'Tu intestino, tu segundo cerebro. Aprende a cuidarlo para transformar tu bienestar.', paginas: 8, url_pdf: '/pdfs/Guia_Salud_Digestiva_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'Guia de Equilibrio Emocional', descripcion: 'Aprende a habitar el presente. Tu guia para sentir, soltar y florecer.', paginas: 9, url_pdf: '/pdfs/Guia_Equilibrio_Emocional_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'Guia de Alimentacion Antiinflamatoria', descripcion: 'Descubri como reducir la inflamacion a traves de una alimentacion consciente.', paginas: null, url_pdf: '/pdfs/Guia_Alimentacion_Antiinflamatoria_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: '30 Tips Rapidos para tu Bienestar', descripcion: 'Un tip por dia durante un mes. Imprimilo, guardalo en el celu o pegalo en la heladera.', paginas: 3, url_pdf: '/pdfs/Tips_Rapidos_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'Esto x Esto: Sustituciones Saludables', descripcion: 'No se trata de eliminar lo que te gusta, sino de encontrar versiones que te hagan sentir mejor.', paginas: 2, url_pdf: '/pdfs/Esto_x_Esto_Sustituciones_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'Lista de Compras Consciente', descripcion: 'Todo lo que necesitas para una semana de alimentacion antiinflamatoria y consciente.', paginas: 2, url_pdf: '/pdfs/Lista_Compras_Consciente_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
+        { titulo: 'SOS Emergencia: Para. Respira. Lee Esto.', descripcion: 'Guarda este PDF en tu celular. Leelo antes de decidir. Para momentos de tentacion.', paginas: 1, url_pdf: '/pdfs/SOS_Emergencia_AnaBienestarIntegral.pdf', para_todas: true, visible: true },
       ];
       const { error } = await supabase.from('material').insert(material).select();
       if (error) log.push('Material: Error - ' + error.message);
-      else log.push('Material: 4 materiales creados');
+      else log.push('Material: 8 guias PDF de Ana Bienestar creadas');
     } else {
       log.push('Material: Ya tiene datos');
     }

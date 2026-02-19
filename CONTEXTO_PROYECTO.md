@@ -173,9 +173,11 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 
 ---
 
-## RESUMEN DE LA ULTIMA SESION (2026-02-19)
+## BITACORA DE SESIONES
 
-### Lo que se hizo:
+> Cada sesion de Claude Code agrega aqui lo que se hizo, para que la proxima sesion pueda continuar sin perder contexto.
+
+### Sesion 1 — 2026-02-19 (v3.1 → v4.0)
 1. Revisamos todo el repositorio completo para entender el estado
 2. Los cambios pendientes de la sesion anterior (v3.1: fallbacks de resiliencia + seedData) se commitearon
 3. Se implemento el sistema de chat completo (v4.0):
@@ -191,9 +193,34 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 6. Se crearon 3 commits detallados
 7. Se creo este archivo de contexto
 
-### Comunicacion con el usuario:
-- El usuario prefiere comunicacion en espanol
-- Pide commits detallados con version
-- Quiere que se revise todo el repo antes de hacer cambios
-- Valora la persistencia de contexto entre sesiones
+### Sesion 2 — 2026-02-19 (revision de estado)
+1. Se reviso todo el codigo vs las notas de CONTEXTO_PROYECTO.md
+2. **Resultado: 100% alineado** — el codigo real coincide perfectamente con lo documentado
+3. Se agrego esta seccion de bitacora para registrar cambios futuros
+4. Estado actual: v4.0 completa, arbol de trabajo limpio, sin cambios pendientes
+5. Tareas manuales de Edgardo siguen pendientes (push, SQL, bucket, realtime, testing)
+
+### Sesion 3 — 2026-02-19 (PDFs de material)
+1. Se copiaron los 8 PDFs de guias de Ana Bienestar a `public/pdfs/`:
+   - Guia de Bienestar Integral
+   - Guia de Salud Digestiva
+   - Guia de Equilibrio Emocional
+   - Guia de Alimentacion Antiinflamatoria
+   - 30 Tips Rapidos para tu Bienestar
+   - Esto x Esto: Sustituciones Saludables
+   - Lista de Compras Consciente
+   - SOS Emergencia
+2. Se actualizo `seedData.js`: los materiales de ejemplo se reemplazaron por los 8 PDFs reales con url_pdf apuntando a `/pdfs/...`
+3. Se creo `supabase_material_pdfs.sql` con INSERTs alternativos (por si se prefiere SQL directo)
+4. **Flujo para Ana**: Panel admin → Configuracion → "Insertar datos de ejemplo" carga los 8 PDFs automaticamente en la tabla `material`
+5. Las clientas ven los PDFs en la pantalla Material (requiere acceso, ver tarea pendiente de BottomNav)
+
+---
+
+## PREFERENCIAS DEL USUARIO
+- Comunicacion en espanol
+- Commits detallados con version
+- Revisar todo el repo antes de hacer cambios
+- Persistencia de contexto entre sesiones (bitacora)
 - El proyecto es para una nutricionista real (Ana Karina) en Uruguay
+- Cada cambio debe quedar registrado en la bitacora de este archivo
