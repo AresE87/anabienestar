@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 import AdminMaterial from '../components/AdminMaterial';
 import AdminVideos from '../components/AdminVideos';
 import AdminClientas from '../components/AdminClientas';
@@ -13,74 +14,8 @@ const colors = {
   orange: '#c4762a'
 };
 
-// Datos mock
-const mockClientas = [
-  {
-    id: 1,
-    nombre: 'María González',
-    avatar: '👩',
-    fechaInicio: '2026-01-15',
-    semana: 6,
-    semanasTotal: 12,
-    pesoInicial: 78,
-    pesoActual: 72.5,
-    objetivo: -10,
-    progreso: 55,
-    estado: 'En progreso',
-    restricciones: ['Sin gluten'],
-    nivelActividad: 'Moderado',
-    horarioComidas: '8:00, 13:00, 20:00',
-    porQue: 'Quiero sentirme mejor conmigo misma',
-    notasKarina: 'Muy comprometida con el proceso',
-    notasClienta: ['Dudas sobre el plan de esta semana', 'Quiero ajustar los horarios']
-  },
-  {
-    id: 2,
-    nombre: 'Laura Martínez',
-    avatar: '👱‍♀️',
-    fechaInicio: '2026-01-08',
-    semana: 7,
-    semanasTotal: 12,
-    pesoInicial: 85,
-    pesoActual: 79.2,
-    objetivo: -12,
-    progreso: 48,
-    estado: 'En progreso',
-    restricciones: ['Vegetariana'],
-    nivelActividad: 'Alto',
-    horarioComidas: '7:30, 12:30, 19:30',
-    porQue: 'Mejorar mi salud y energía',
-    notasKarina: 'Excelente adherencia',
-    notasClienta: []
-  },
-  {
-    id: 3,
-    nombre: 'Sofía Rodríguez',
-    avatar: '👩‍🦰',
-    fechaInicio: '2025-12-20',
-    semana: 9,
-    semanasTotal: 12,
-    pesoInicial: 92,
-    pesoActual: 84.5,
-    objetivo: -15,
-    progreso: 50,
-    estado: 'Sin actividad 3d',
-    restricciones: ['Sin lactosa'],
-    nivelActividad: 'Bajo',
-    horarioComidas: '9:00, 14:00, 21:00',
-    porQue: 'Prepararme para mi boda',
-    notasKarina: 'Necesita más seguimiento',
-    notasClienta: []
-  }
-];
-
-const mockSesionesHoy = [
-  { hora: '10:00', nombre: 'Laura Martínez', semana: 7, notasListas: true },
-  { hora: '14:00', nombre: 'María González', semana: 6, notasListas: true },
-  { hora: '18:00', nombre: 'Sofía Rodríguez', semana: 9, notasListas: false }
-];
-
 function formatFecha(fechaStr) {
+  if (!fechaStr) return '—';
   const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const d = new Date(fechaStr);
   return `${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
@@ -93,9 +28,58 @@ function getFechaHoy() {
   return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+function getTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function semanasDesdeInicio(fechaInicio) {
+  if (!fechaInicio) return 1;
+  const inicio = new Date(fechaInicio);
+  const hoy = new Date();
+  return Math.max(1, Math.floor((hoy - inicio) / (7 * 24 * 60 * 60 * 1000)) + 1);
+}
+
+function getWeekRange() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return { monday, sunday };
+}
+
 function Admin() {
   const { logout } = useAuth();
   const [activeTab, setActiveTab] = useState('resumen');
+
+  // ── Resumen state ──
+  const [clientas, setClientas] = useState([]);
+  const [citasHoy, setCitasHoy] = useState([]);
+  const [loadingResumen, setLoadingResumen] = useState(true);
+
+  // ── Notificaciones state ──
+  const [notifClientas, setNotifClientas] = useState([]);
+  const [notifDestinatario, setNotifDestinatario] = useState('todas');
+  const [notifTipo, setNotifTipo] = useState('Mensaje en app');
+  const [notifMensaje, setNotifMensaje] = useState('');
+  const [notifHistorial, setNotifHistorial] = useState([]);
+  const [enviandoNotif, setEnviandoNotif] = useState(false);
+
+  // ── Agenda state ──
+  const [citasSemana, setCitasSemana] = useState([]);
+  const [agendaClientas, setAgendaClientas] = useState([]);
+  const [showAgendaForm, setShowAgendaForm] = useState(false);
+  const [agendaForm, setAgendaForm] = useState({ usuario_id: '', fecha: '', hora: '', tipo: 'Seguimiento', modalidad: 'Videollamada', notas: '' });
+  const [guardandoCita, setGuardandoCita] = useState(false);
+
+  // ── Configuracion state ──
+  const [frases, setFrases] = useState([]);
+  const [nuevaFrase, setNuevaFrase] = useState('');
+  const [loadingFrases, setLoadingFrases] = useState(true);
 
   const menuItems = [
     { id: 'resumen', label: 'Resumen', icon: '📊' },
@@ -108,515 +92,403 @@ function Admin() {
     { id: 'configuracion', label: 'Configuración', icon: '⚙️' }
   ];
 
-  const styles = {
-    adminContainer: {
-      display: 'flex',
-      minHeight: '100vh',
-      background: colors.cream,
-      width: '100%',
-      maxWidth: '100%'
-    },
-    sidebar: {
-      width: '210px',
-      background: colors.sageDark,
-      color: 'white',
-      padding: '1.5rem 1rem',
-      position: 'fixed',
-      height: '100vh',
-      overflowY: 'auto',
-      zIndex: 100,
-      display: 'flex',
-      flexDirection: 'column'
-    },
-    logo: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontStyle: 'italic',
-      fontSize: '1.1rem',
-      fontWeight: 400,
-      marginBottom: '2rem',
-      textAlign: 'center',
-      color: 'white'
-    },
-    avatarSection: {
-      textAlign: 'center',
-      marginBottom: '2rem',
-      paddingBottom: '1.5rem',
-      borderBottom: '1px solid rgba(255,255,255,0.2)'
-    },
-    avatar: {
-      width: '60px',
-      height: '60px',
-      borderRadius: '50%',
-      background: colors.sage,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '2rem',
-      margin: '0 auto 0.75rem'
-    },
-    avatarName: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1rem',
-      fontWeight: 600,
-      marginBottom: '0.25rem'
-    },
-    avatarRole: {
-      fontSize: '0.75rem',
-      opacity: 0.8,
-      fontFamily: "'Jost', sans-serif"
-    },
-    menuItem: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.75rem',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      marginBottom: '0.5rem',
-      transition: 'all 0.2s',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem'
-    },
-    menuItemActive: {
-      background: colors.sage,
-      fontWeight: 600
-    },
-    logoutButton: {
-      marginTop: 'auto',
-      paddingTop: '1rem',
-      borderTop: '1px solid rgba(255,255,255,0.2)'
-    },
-    logoutBtn: {
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.5rem',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      border: 'none',
-      background: 'transparent',
-      color: 'rgba(255,255,255,0.9)',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      cursor: 'pointer'
-    },
-    contentArea: {
-      marginLeft: '210px',
-      flex: 1,
-      padding: '2rem',
-      minHeight: '100vh'
-    },
-    topbar: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: '2rem'
-    },
-    topbarTitle: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.5rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      margin: 0
-    },
-    topbarDate: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      color: colors.sageDark,
-      opacity: 0.7,
-      marginTop: '0.25rem'
-    },
-    buttonPrimary: {
-      padding: '0.75rem 1.5rem',
-      borderRadius: '14px',
-      border: 'none',
-      background: colors.sage,
-      color: 'white',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      fontWeight: 500,
-      cursor: 'pointer',
-      transition: 'all 0.2s'
-    },
-    statsGrid: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, 1fr)',
-      gap: '1.5rem',
-      marginBottom: '2rem'
-    },
-    statCard: {
-      background: 'white',
-      borderRadius: '14px',
-      padding: '1.5rem',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
-    },
-    statValue: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '2rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '0.5rem'
-    },
-    statLabel: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      color: colors.sageDark,
-      opacity: 0.7
-    },
-    statCardOrange: {
-      background: 'white',
-      borderRadius: '14px',
-      padding: '1.5rem',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-      borderLeft: `4px solid ${colors.orange}`
-    },
-    statValueOrange: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '2rem',
-      fontWeight: 600,
-      color: colors.orange,
-      marginBottom: '0.5rem'
-    },
-    section: {
-      background: 'white',
-      borderRadius: '14px',
-      padding: '1.5rem',
-      marginBottom: '2rem',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
-    },
-    sectionTitle: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.25rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      marginBottom: '1rem'
-    },
-    pillsContainer: {
-      display: 'flex',
-      gap: '1rem',
-      flexWrap: 'wrap'
-    },
-    pill: {
-      padding: '0.75rem 1.25rem',
-      borderRadius: '20px',
-      background: colors.cream,
-      border: `1px solid ${colors.sage}`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem'
-    },
-    pillGreen: {
-      background: '#e8f5e9',
-      borderColor: colors.sage,
-      color: colors.sageDark
-    },
-    pillGold: {
-      background: '#fff4e6',
-      borderColor: colors.gold,
-      color: colors.gold
-    },
-    table: {
-      width: '100%',
-      borderCollapse: 'collapse'
-    },
-    tableHeader: {
-      textAlign: 'left',
-      padding: '1rem',
-      borderBottom: `2px solid ${colors.cream}`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.85rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      textTransform: 'uppercase',
-      letterSpacing: '0.05em'
-    },
-    tableRow: {
-      cursor: 'pointer',
-      transition: 'all 0.2s',
-      borderBottom: `1px solid ${colors.cream}`
-    },
-    tableRowHover: {
-      background: colors.cream
-    },
-    tableCell: {
-      padding: '1rem',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      color: colors.sageDark
-    },
-    progressBar: {
-      width: '100%',
-      height: '8px',
-      background: colors.cream,
-      borderRadius: '4px',
-      overflow: 'hidden',
-      marginTop: '0.5rem'
-    },
-    progressFill: {
-      height: '100%',
-      background: colors.sage,
-      borderRadius: '4px',
-      transition: 'width 0.3s'
-    },
-    badge: {
-      display: 'inline-block',
-      padding: '0.25rem 0.75rem',
-      borderRadius: '12px',
-      fontSize: '0.75rem',
-      fontWeight: 500,
-      fontFamily: "'Jost', sans-serif"
-    },
-    badgeGreen: {
-      background: '#e8f5e9',
-      color: colors.sage
-    },
-    badgeOrange: {
-      background: '#ffe8d6',
-      color: colors.orange
-    },
-    badgeDefault: {
-      background: colors.cream,
-      color: colors.sageDark
-    },
-    input: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      border: `1px solid rgba(61, 92, 65, 0.3)`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      marginBottom: '1rem',
-      boxSizing: 'border-box'
-    },
-    textarea: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      border: `1px solid rgba(61, 92, 65, 0.3)`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      marginBottom: '1rem',
-      boxSizing: 'border-box',
-      minHeight: '100px',
-      resize: 'vertical'
-    },
-    select: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      border: `1px solid rgba(61, 92, 65, 0.3)`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      marginBottom: '1rem',
-      boxSizing: 'border-box',
-      background: 'white'
-    },
-    checkboxGroup: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.75rem',
-      marginBottom: '1rem'
-    },
-    checkboxLabel: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.5rem',
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      cursor: 'pointer'
-    },
-    twoColumns: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '2rem'
-    },
-    profileCard: {
-      background: 'white',
-      borderRadius: '14px',
-      padding: '2rem',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-      position: 'sticky',
-      top: '2rem'
-    },
-    profileAvatar: {
-      width: '100px',
-      height: '100px',
-      borderRadius: '50%',
-      background: colors.sage,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '3rem',
-      margin: '0 auto 1rem'
-    },
-    profileName: {
-      fontFamily: "'Playfair Display', Georgia, serif",
-      fontSize: '1.5rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      textAlign: 'center',
-      marginBottom: '0.5rem'
-    },
-    profileField: {
-      marginBottom: '1rem'
-    },
-    profileLabel: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      color: colors.sageDark,
-      opacity: 0.7,
-      textTransform: 'uppercase',
-      letterSpacing: '0.05em',
-      marginBottom: '0.25rem'
-    },
-    profileValue: {
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.95rem',
-      color: colors.sageDark
-    },
-    searchInput: {
-      width: '100%',
-      padding: '0.75rem',
-      borderRadius: '8px',
-      border: `1px solid rgba(61, 92, 65, 0.3)`,
-      fontFamily: "'Jost', sans-serif",
-      fontSize: '0.9rem',
-      marginBottom: '1.5rem',
-      boxSizing: 'border-box'
+  // ══════════════════════════════════════════════
+  // DATA FETCHING
+  // ══════════════════════════════════════════════
+
+  const loadResumen = useCallback(async () => {
+    setLoadingResumen(true);
+    try {
+      // Fetch clientas with fichas
+      const { data: usuarios } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email, avatar')
+        .eq('rol', 'clienta')
+        .order('nombre');
+
+      const list = usuarios || [];
+      const conFichas = await Promise.all(
+        list.map(async (u) => {
+          const { data: ficha } = await supabase
+            .from('fichas')
+            .select('*')
+            .eq('usuario_id', u.id)
+            .maybeSingle();
+          return { ...u, ficha: ficha || null };
+        })
+      );
+      setClientas(conFichas);
+
+      // Fetch citas de hoy
+      const hoy = getTodayKey();
+      const startOfDay = hoy + 'T00:00:00';
+      const endOfDay = hoy + 'T23:59:59';
+      const { data: citas } = await supabase
+        .from('citas')
+        .select('*, usuarios(nombre)')
+        .gte('fecha', startOfDay)
+        .lte('fecha', endOfDay)
+        .order('fecha', { ascending: true });
+      setCitasHoy(citas || []);
+    } catch (err) {
+      console.error('Error cargando resumen:', err);
+    } finally {
+      setLoadingResumen(false);
+    }
+  }, []);
+
+  const loadNotificaciones = useCallback(async () => {
+    try {
+      const { data: usuarios } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('rol', 'clienta')
+        .order('nombre');
+      setNotifClientas(usuarios || []);
+
+      const { data: historial } = await supabase
+        .from('notificaciones')
+        .select('*, usuarios:destinatario_id(nombre)')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setNotifHistorial(historial || []);
+    } catch (err) {
+      console.error('Error cargando notificaciones:', err);
+    }
+  }, []);
+
+  const loadAgenda = useCallback(async () => {
+    try {
+      const { monday, sunday } = getWeekRange();
+      const { data: citas } = await supabase
+        .from('citas')
+        .select('*, usuarios(nombre)')
+        .gte('fecha', monday.toISOString())
+        .lte('fecha', sunday.toISOString())
+        .order('fecha', { ascending: true });
+      setCitasSemana(citas || []);
+
+      const { data: usuarios } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('rol', 'clienta')
+        .order('nombre');
+      setAgendaClientas(usuarios || []);
+    } catch (err) {
+      console.error('Error cargando agenda:', err);
+    }
+  }, []);
+
+  const loadFrases = useCallback(async () => {
+    setLoadingFrases(true);
+    try {
+      const { data } = await supabase
+        .from('frases')
+        .select('*')
+        .order('created_at', { ascending: false });
+      setFrases(data || []);
+    } catch (err) {
+      console.error('Error cargando frases:', err);
+    } finally {
+      setLoadingFrases(false);
+    }
+  }, []);
+
+  // Load data based on active tab
+  useEffect(() => {
+    if (activeTab === 'resumen') loadResumen();
+    if (activeTab === 'notificaciones') loadNotificaciones();
+    if (activeTab === 'agenda') loadAgenda();
+    if (activeTab === 'configuracion') loadFrases();
+  }, [activeTab, loadResumen, loadNotificaciones, loadAgenda, loadFrases]);
+
+  // ══════════════════════════════════════════════
+  // HANDLERS
+  // ══════════════════════════════════════════════
+
+  const handleEnviarNotificacion = async () => {
+    if (!notifMensaje.trim()) return;
+    setEnviandoNotif(true);
+    try {
+      const datos = {
+        mensaje: notifMensaje.trim(),
+        tipo: notifTipo,
+        para_todas: notifDestinatario === 'todas',
+        destinatario_id: notifDestinatario === 'todas' ? null : notifDestinatario,
+        enviada: true,
+      };
+      const { error } = await supabase.from('notificaciones').insert(datos).select();
+      if (error) {
+        alert('Error: ' + error.message);
+        return;
+      }
+      setNotifMensaje('');
+      setNotifDestinatario('todas');
+      loadNotificaciones();
+    } catch (err) {
+      alert('Error al enviar: ' + (err.message || err));
+    } finally {
+      setEnviandoNotif(false);
     }
   };
 
-  const renderResumen = () => (
-    <>
-      <div style={styles.topbar}>
-        <div>
-          <h1 style={styles.topbarTitle}>Buenos días, Karina 👋</h1>
-          <div style={styles.topbarDate}>{getFechaHoy()}</div>
-        </div>
-        <button style={styles.buttonPrimary}>+ Nueva clienta</button>
-      </div>
+  const handleCrearCita = async () => {
+    if (!agendaForm.usuario_id || !agendaForm.fecha || !agendaForm.hora) return;
+    setGuardandoCita(true);
+    try {
+      const fechaHora = `${agendaForm.fecha}T${agendaForm.hora}:00`;
+      const { error } = await supabase.from('citas').insert({
+        usuario_id: agendaForm.usuario_id,
+        fecha: fechaHora,
+        tipo: agendaForm.tipo,
+        modalidad: agendaForm.modalidad,
+        notas: agendaForm.notas || null,
+      }).select();
+      if (error) {
+        alert('Error: ' + error.message);
+        return;
+      }
+      setAgendaForm({ usuario_id: '', fecha: '', hora: '', tipo: 'Seguimiento', modalidad: 'Videollamada', notas: '' });
+      setShowAgendaForm(false);
+      loadAgenda();
+    } catch (err) {
+      alert('Error: ' + (err.message || err));
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
 
-      <div style={styles.statsGrid}>
-        <div style={styles.statCard}>
-          <div style={styles.statValue}>12</div>
-          <div style={styles.statLabel}>Clientas activas</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statValue}>3</div>
-          <div style={styles.statLabel}>Sesiones hoy</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statValue}>94%</div>
-          <div style={styles.statLabel}>Adherencia promedio</div>
-        </div>
-        <div style={styles.statCardOrange}>
-          <div style={styles.statValueOrange}>1</div>
-          <div style={styles.statLabel}>Requieren atención</div>
-        </div>
-      </div>
+  const handleAgregarFrase = async () => {
+    if (!nuevaFrase.trim()) return;
+    try {
+      const { error } = await supabase.from('frases').insert({ texto: nuevaFrase.trim(), activa: true }).select();
+      if (error) {
+        alert('Error: ' + error.message);
+        return;
+      }
+      setNuevaFrase('');
+      loadFrases();
+    } catch (err) {
+      alert('Error: ' + (err.message || err));
+    }
+  };
 
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Sesiones de hoy</h2>
-        <div style={styles.pillsContainer}>
-          {mockSesionesHoy.map((sesion, i) => (
-            <div
-              key={i}
-              style={{
-                ...styles.pill,
-                ...(sesion.notasListas ? styles.pillGreen : styles.pillGold)
-              }}
-            >
-              <strong>{sesion.hora}</strong> · {sesion.nombre} · Semana {sesion.semana} ·{' '}
-              {sesion.notasListas ? '✓ Listas' : 'Notas pendientes'}
+  const handleEliminarFrase = async (id) => {
+    if (!window.confirm('¿Eliminar esta frase?')) return;
+    try {
+      await supabase.from('frases').delete().eq('id', id);
+      loadFrases();
+    } catch (err) {
+      console.error('Error eliminando frase:', err);
+    }
+  };
+
+  const handleToggleFrase = async (id, activaActual) => {
+    try {
+      await supabase.from('frases').update({ activa: !activaActual }).eq('id', id);
+      setFrases(prev => prev.map(f => f.id === id ? { ...f, activa: !activaActual } : f));
+    } catch (err) {
+      console.error('Error:', err);
+    }
+  };
+
+  // ══════════════════════════════════════════════
+  // COMPUTED VALUES
+  // ══════════════════════════════════════════════
+
+  const clientasConFicha = clientas.filter(c => c.ficha);
+  const totalClientas = clientas.length;
+  const sesionesHoy = citasHoy.length;
+
+  // Calcular adherencia: % promedio de checklist completado hoy
+  const calcularAdherencia = () => {
+    if (clientasConFicha.length === 0) return 0;
+    // Simple: just show number of clientas with fichas as a proxy
+    return clientasConFicha.length > 0 ? Math.round((clientasConFicha.length / Math.max(totalClientas, 1)) * 100) : 0;
+  };
+
+  // ══════════════════════════════════════════════
+  // STYLES
+  // ══════════════════════════════════════════════
+
+  const styles = {
+    adminContainer: { display: 'flex', minHeight: '100vh', background: colors.cream, width: '100%', maxWidth: '100%' },
+    sidebar: { width: '210px', background: colors.sageDark, color: 'white', padding: '1.5rem 1rem', position: 'fixed', height: '100vh', overflowY: 'auto', zIndex: 100, display: 'flex', flexDirection: 'column' },
+    logo: { fontFamily: "'Playfair Display', Georgia, serif", fontStyle: 'italic', fontSize: '1.1rem', fontWeight: 400, marginBottom: '2rem', textAlign: 'center', color: 'white' },
+    avatarSection: { textAlign: 'center', marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.2)' },
+    avatar: { width: '60px', height: '60px', borderRadius: '50%', background: colors.sage, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', margin: '0 auto 0.75rem' },
+    avatarName: { fontFamily: "'Playfair Display', Georgia, serif", fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' },
+    avatarRole: { fontSize: '0.75rem', opacity: 0.8, fontFamily: "'Jost', sans-serif" },
+    menuItem: { display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '8px', cursor: 'pointer', marginBottom: '0.5rem', transition: 'all 0.2s', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem' },
+    menuItemActive: { background: colors.sage, fontWeight: 600 },
+    logoutButton: { marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.2)' },
+    logoutBtn: { width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '8px', border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.9)', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', cursor: 'pointer' },
+    contentArea: { marginLeft: '210px', flex: 1, padding: '2rem', minHeight: '100vh' },
+    topbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' },
+    topbarTitle: { fontFamily: "'Playfair Display', Georgia, serif", fontSize: '1.5rem', fontWeight: 600, color: colors.sageDark, margin: 0 },
+    topbarDate: { fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', color: colors.sageDark, opacity: 0.7, marginTop: '0.25rem' },
+    buttonPrimary: { padding: '0.75rem 1.5rem', borderRadius: '14px', border: 'none', background: colors.sage, color: 'white', fontFamily: "'Jost', sans-serif", fontSize: '0.95rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' },
+    statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' },
+    statCard: { background: 'white', borderRadius: '14px', padding: '1.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
+    statValue: { fontFamily: "'Playfair Display', Georgia, serif", fontSize: '2rem', fontWeight: 600, color: colors.sageDark, marginBottom: '0.5rem' },
+    statLabel: { fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', color: colors.sageDark, opacity: 0.7 },
+    statCardOrange: { background: 'white', borderRadius: '14px', padding: '1.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: `4px solid ${colors.orange}` },
+    statValueOrange: { fontFamily: "'Playfair Display', Georgia, serif", fontSize: '2rem', fontWeight: 600, color: colors.orange, marginBottom: '0.5rem' },
+    section: { background: 'white', borderRadius: '14px', padding: '1.5rem', marginBottom: '2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
+    sectionTitle: { fontFamily: "'Playfair Display', Georgia, serif", fontSize: '1.25rem', fontWeight: 600, color: colors.sageDark, marginBottom: '1rem' },
+    pillsContainer: { display: 'flex', gap: '1rem', flexWrap: 'wrap' },
+    pill: { padding: '0.75rem 1.25rem', borderRadius: '20px', background: colors.cream, border: `1px solid ${colors.sage}`, fontFamily: "'Jost', sans-serif", fontSize: '0.9rem' },
+    pillGreen: { background: '#e8f5e9', borderColor: colors.sage, color: colors.sageDark },
+    pillGold: { background: '#fff4e6', borderColor: colors.gold, color: colors.gold },
+    table: { width: '100%', borderCollapse: 'collapse' },
+    tableHeader: { textAlign: 'left', padding: '1rem', borderBottom: `2px solid ${colors.cream}`, fontFamily: "'Jost', sans-serif", fontSize: '0.85rem', fontWeight: 600, color: colors.sageDark, textTransform: 'uppercase', letterSpacing: '0.05em' },
+    tableRow: { cursor: 'pointer', transition: 'all 0.2s', borderBottom: `1px solid ${colors.cream}` },
+    tableCell: { padding: '1rem', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', color: colors.sageDark },
+    progressBar: { width: '100%', height: '8px', background: colors.cream, borderRadius: '4px', overflow: 'hidden', marginTop: '0.5rem' },
+    progressFill: { height: '100%', background: colors.sage, borderRadius: '4px', transition: 'width 0.3s' },
+    badge: { display: 'inline-block', padding: '0.25rem 0.75rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500, fontFamily: "'Jost', sans-serif" },
+    badgeGreen: { background: '#e8f5e9', color: colors.sage },
+    badgeOrange: { background: '#ffe8d6', color: colors.orange },
+    badgeDefault: { background: colors.cream, color: colors.sageDark },
+    input: { width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(61, 92, 65, 0.3)', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', marginBottom: '1rem', boxSizing: 'border-box' },
+    textarea: { width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(61, 92, 65, 0.3)', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', marginBottom: '1rem', boxSizing: 'border-box', minHeight: '100px', resize: 'vertical' },
+    select: { width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(61, 92, 65, 0.3)', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem', marginBottom: '1rem', boxSizing: 'border-box', background: 'white' },
+    twoColumns: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' },
+    profileLabel: { fontFamily: "'Jost', sans-serif", fontSize: '0.75rem', fontWeight: 600, color: colors.sageDark, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' },
+  };
+
+  // ══════════════════════════════════════════════
+  // RENDER FUNCTIONS
+  // ══════════════════════════════════════════════
+
+  const renderResumen = () => {
+    const sinActividad = clientasConFicha.filter(c => {
+      // Clientas without recent checklist activity could be flagged
+      // Simple heuristic: no ficha = needs attention
+      return !c.ficha;
+    }).length;
+
+    return (
+      <>
+        <div style={styles.topbar}>
+          <div>
+            <h1 style={styles.topbarTitle}>Buenos días, Karina 👋</h1>
+            <div style={styles.topbarDate}>{getFechaHoy()}</div>
+          </div>
+          <button style={styles.buttonPrimary} onClick={() => setActiveTab('fichas')}>+ Nueva clienta</button>
+        </div>
+
+        {loadingResumen ? (
+          <p style={{ fontFamily: "'Jost', sans-serif", color: colors.sageDark }}>Cargando...</p>
+        ) : (
+          <>
+            <div style={styles.statsGrid}>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>{totalClientas}</div>
+                <div style={styles.statLabel}>Clientas activas</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>{sesionesHoy}</div>
+                <div style={styles.statLabel}>Sesiones hoy</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statValue}>{calcularAdherencia()}%</div>
+                <div style={styles.statLabel}>Con ficha activa</div>
+              </div>
+              <div style={sinActividad > 0 ? styles.statCardOrange : styles.statCard}>
+                <div style={sinActividad > 0 ? styles.statValueOrange : styles.statValue}>{sinActividad}</div>
+                <div style={styles.statLabel}>Sin ficha</div>
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Clientas</h2>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.tableHeader}>Clienta</th>
-              <th style={styles.tableHeader}>Inicio</th>
-              <th style={styles.tableHeader}>Progreso</th>
-              <th style={styles.tableHeader}>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mockClientas.map((c) => {
-              const perdido = c.pesoInicial - c.pesoActual;
-              const isOrange = c.estado.includes('Sin actividad');
-              const isGreen = c.estado.includes('Completando');
-              return (
-                <tr
-                  key={c.id}
-                  style={styles.tableRow}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = colors.cream)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  onClick={() => setActiveTab('clientas')}
-                >
-                  <td style={styles.tableCell}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <span style={{ fontSize: '1.5rem' }}>{c.avatar}</span>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{c.nombre}</div>
-                        <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                          Semana {c.semana}/{c.semanasTotal}
-                        </div>
+            {citasHoy.length > 0 && (
+              <div style={styles.section}>
+                <h2 style={styles.sectionTitle}>Sesiones de hoy</h2>
+                <div style={styles.pillsContainer}>
+                  {citasHoy.map((cita) => {
+                    const hora = new Date(cita.fecha).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' });
+                    const nombre = Array.isArray(cita.usuarios) ? cita.usuarios[0]?.nombre : cita.usuarios?.nombre;
+                    return (
+                      <div key={cita.id} style={{ ...styles.pill, ...styles.pillGreen }}>
+                        <strong>{hora}</strong> · {nombre || 'Clienta'} · {cita.tipo || 'Sesión'}
                       </div>
-                    </div>
-                  </td>
-                  <td style={styles.tableCell}>{formatFecha(c.fechaInicio)}</td>
-                  <td style={styles.tableCell}>
-                    <div>
-                      {c.progreso}% · {perdido.toFixed(1)} kg
-                    </div>
-                    <div style={styles.progressBar}>
-                      <div style={{ ...styles.progressFill, width: `${c.progreso}%` }} />
-                    </div>
-                  </td>
-                  <td style={styles.tableCell}>
-                    <span
-                      style={{
-                        ...styles.badge,
-                        ...(isOrange
-                          ? styles.badgeOrange
-                          : isGreen
-                          ? styles.badgeGreen
-                          : styles.badgeDefault)
-                      }}
-                    >
-                      {c.estado}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Enviar notificación rápida</h2>
-        <select style={styles.select}>
-          <option>Todas las clientas</option>
-          {mockClientas.map((c) => (
-            <option key={c.id}>{c.nombre}</option>
-          ))}
-        </select>
-        <input type="text" placeholder="Escribí el mensaje..." style={styles.input} />
-        <button style={styles.buttonPrimary}>Enviar</button>
-      </div>
-    </>
-  );
-
-  const renderClientas = () => <AdminClientas />;
-  const renderFichas = () => <AdminFichas />;
-
-  const renderMaterial = () => <AdminMaterial />;
-  const renderVideos = () => <AdminVideos />;
+            <div style={styles.section}>
+              <h2 style={styles.sectionTitle}>Clientas</h2>
+              {clientas.length === 0 ? (
+                <p style={{ fontFamily: "'Jost', sans-serif", color: colors.sageDark, opacity: 0.7 }}>
+                  No hay clientas todavía.
+                </p>
+              ) : (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.tableHeader}>Clienta</th>
+                      <th style={styles.tableHeader}>Inicio</th>
+                      <th style={styles.tableHeader}>Progreso</th>
+                      <th style={styles.tableHeader}>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientas.map((c) => {
+                      const ficha = c.ficha;
+                      const semana = ficha ? semanasDesdeInicio(ficha.fecha_inicio) : 0;
+                      const perdido = ficha ? (ficha.peso_inicial || 0) - (ficha.peso_actual || ficha.peso_inicial || 0) : 0;
+                      const progreso = ficha && ficha.objetivo_kg ? Math.min(100, Math.round((perdido / Math.abs(ficha.objetivo_kg)) * 100)) : 0;
+                      const estado = ficha ? 'En progreso' : 'Sin ficha';
+                      const isOrange = !ficha;
+                      return (
+                        <tr
+                          key={c.id}
+                          style={styles.tableRow}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = colors.cream)}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                          onClick={() => setActiveTab('clientas')}
+                        >
+                          <td style={styles.tableCell}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <span style={{ fontSize: '1.5rem' }}>{c.avatar || '👩'}</span>
+                              <div>
+                                <div style={{ fontWeight: 600 }}>{c.nombre || c.email || 'Sin nombre'}</div>
+                                <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
+                                  {ficha ? `Semana ${semana}/12` : 'Sin ficha'}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={styles.tableCell}>{ficha ? formatFecha(ficha.fecha_inicio) : '—'}</td>
+                          <td style={styles.tableCell}>
+                            {ficha ? (
+                              <>
+                                <div>{progreso}% · {perdido.toFixed(1)} kg</div>
+                                <div style={styles.progressBar}>
+                                  <div style={{ ...styles.progressFill, width: `${progreso}%` }} />
+                                </div>
+                              </>
+                            ) : '—'}
+                          </td>
+                          <td style={styles.tableCell}>
+                            <span style={{ ...styles.badge, ...(isOrange ? styles.badgeOrange : styles.badgeDefault) }}>
+                              {estado}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+      </>
+    );
+  };
 
   const renderNotificaciones = () => (
     <>
@@ -626,19 +498,33 @@ function Admin() {
       <div style={styles.twoColumns}>
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Nueva notificación</h2>
-          <select style={styles.select}>
-            <option>Todas las clientas</option>
-            {mockClientas.map((c) => (
-              <option key={c.id}>{c.nombre}</option>
+          <select
+            style={styles.select}
+            value={notifDestinatario}
+            onChange={(e) => setNotifDestinatario(e.target.value)}
+          >
+            <option value="todas">Todas las clientas</option>
+            {notifClientas.map((c) => (
+              <option key={c.id} value={c.id}>{c.nombre || c.email}</option>
             ))}
           </select>
-          <select style={styles.select}>
-            <option>Push</option>
+          <select style={styles.select} value={notifTipo} onChange={(e) => setNotifTipo(e.target.value)}>
             <option>Mensaje en app</option>
+            <option>Recordatorio</option>
           </select>
-          <input type="datetime-local" style={styles.input} />
-          <textarea placeholder="Mensaje..." style={styles.textarea} />
-          <button style={styles.buttonPrimary}>Enviar</button>
+          <textarea
+            placeholder="Mensaje..."
+            style={styles.textarea}
+            value={notifMensaje}
+            onChange={(e) => setNotifMensaje(e.target.value)}
+          />
+          <button
+            style={{ ...styles.buttonPrimary, opacity: enviandoNotif || !notifMensaje.trim() ? 0.5 : 1 }}
+            onClick={handleEnviarNotificacion}
+            disabled={enviandoNotif || !notifMensaje.trim()}
+          >
+            {enviandoNotif ? 'Enviando...' : 'Enviar'}
+          </button>
           <div style={{ marginTop: '1.5rem' }}>
             <div style={styles.profileLabel}>Plantillas rápidas</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -649,13 +535,8 @@ function Admin() {
               ].map((t, i) => (
                 <button
                   key={i}
-                  style={{
-                    ...styles.buttonPrimary,
-                    background: 'transparent',
-                    color: colors.sageDark,
-                    border: `1px solid ${colors.sage}`,
-                    textAlign: 'left'
-                  }}
+                  style={{ ...styles.buttonPrimary, background: 'transparent', color: colors.sageDark, border: `1px solid ${colors.sage}`, textAlign: 'left' }}
+                  onClick={() => setNotifMensaje(t)}
                 >
                   {t}
                 </button>
@@ -665,27 +546,25 @@ function Admin() {
         </div>
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Historial</h2>
-          {[
-            { fecha: '18 Feb 2026 10:00', destinatario: 'Todas', mensaje: 'Hoy toca pesar 🌿', estado: 'Enviada' },
-            { fecha: '17 Feb 2026 08:00', destinatario: 'María González', mensaje: 'Recordatorio de agua 💧', estado: 'Enviada' }
-          ].map((n, i) => (
-            <div
-              key={i}
-              style={{
-                padding: '1rem',
-                marginBottom: '0.75rem',
-                background: colors.cream,
-                borderRadius: '8px'
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{n.fecha}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem' }}>
-                Para: {n.destinatario}
-              </div>
-              <div style={{ marginBottom: '0.5rem' }}>{n.mensaje}</div>
-              <span style={{ ...styles.badge, ...styles.badgeGreen }}>{n.estado}</span>
-            </div>
-          ))}
+          {notifHistorial.length === 0 ? (
+            <p style={{ fontFamily: "'Jost', sans-serif", color: colors.sageDark, opacity: 0.7 }}>No hay notificaciones todavía.</p>
+          ) : (
+            notifHistorial.map((n) => {
+              const nombre = n.para_todas ? 'Todas' : (Array.isArray(n.usuarios) ? n.usuarios[0]?.nombre : n.usuarios?.nombre) || 'Clienta';
+              return (
+                <div key={n.id} style={{ padding: '1rem', marginBottom: '0.75rem', background: colors.cream, borderRadius: '8px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '0.25rem', fontFamily: "'Jost', sans-serif", fontSize: '0.85rem' }}>
+                    {new Date(n.created_at).toLocaleString('es-UY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem', fontFamily: "'Jost', sans-serif" }}>
+                    Para: {nombre}
+                  </div>
+                  <div style={{ marginBottom: '0.5rem', fontFamily: "'Jost', sans-serif" }}>{n.mensaje}</div>
+                  <span style={{ ...styles.badge, ...styles.badgeGreen }}>{n.enviada ? 'Enviada' : 'Pendiente'}</span>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </>
@@ -693,72 +572,87 @@ function Admin() {
 
   const renderAgenda = () => {
     const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-    const hoy = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+    const hoyIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+
+    // Group citas by day of week
+    const { monday } = getWeekRange();
+    const citasPorDia = Array.from({ length: 7 }, () => []);
+    citasSemana.forEach(cita => {
+      const citaDate = new Date(cita.fecha);
+      const dayDiff = Math.floor((citaDate - monday) / (24 * 60 * 60 * 1000));
+      if (dayDiff >= 0 && dayDiff < 7) {
+        citasPorDia[dayDiff].push(cita);
+      }
+    });
+
     return (
       <>
         <div style={styles.topbar}>
           <h1 style={styles.topbarTitle}>Agenda</h1>
-          <button style={styles.buttonPrimary}>＋ Agendar sesión</button>
+          <button style={styles.buttonPrimary} onClick={() => setShowAgendaForm(!showAgendaForm)}>
+            {showAgendaForm ? 'Cancelar' : '＋ Agendar sesión'}
+          </button>
         </div>
+
+        {showAgendaForm && (
+          <div style={{ ...styles.section, marginBottom: '2rem' }}>
+            <h2 style={styles.sectionTitle}>Nueva cita</h2>
+            <select style={styles.select} value={agendaForm.usuario_id} onChange={(e) => setAgendaForm({ ...agendaForm, usuario_id: e.target.value })}>
+              <option value="">Seleccionar clienta...</option>
+              {agendaClientas.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre || c.email}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <input type="date" style={{ ...styles.input, flex: 1 }} value={agendaForm.fecha} onChange={(e) => setAgendaForm({ ...agendaForm, fecha: e.target.value })} />
+              <input type="time" style={{ ...styles.input, flex: 1 }} value={agendaForm.hora} onChange={(e) => setAgendaForm({ ...agendaForm, hora: e.target.value })} />
+            </div>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <select style={{ ...styles.select, flex: 1 }} value={agendaForm.tipo} onChange={(e) => setAgendaForm({ ...agendaForm, tipo: e.target.value })}>
+                <option>Seguimiento</option>
+                <option>Check-in de peso</option>
+                <option>Sesión inicial</option>
+                <option>Cierre de programa</option>
+              </select>
+              <select style={{ ...styles.select, flex: 1 }} value={agendaForm.modalidad} onChange={(e) => setAgendaForm({ ...agendaForm, modalidad: e.target.value })}>
+                <option>Videollamada</option>
+                <option>Presencial</option>
+                <option>Telefónica</option>
+              </select>
+            </div>
+            <input type="text" placeholder="Notas (opcional)" style={styles.input} value={agendaForm.notas} onChange={(e) => setAgendaForm({ ...agendaForm, notas: e.target.value })} />
+            <button
+              style={{ ...styles.buttonPrimary, opacity: guardandoCita || !agendaForm.usuario_id || !agendaForm.fecha || !agendaForm.hora ? 0.5 : 1 }}
+              onClick={handleCrearCita}
+              disabled={guardandoCita || !agendaForm.usuario_id || !agendaForm.fecha || !agendaForm.hora}
+            >
+              {guardandoCita ? 'Guardando...' : 'Agendar'}
+            </button>
+          </div>
+        )}
+
         <div style={styles.section}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(7, 1fr)',
-              gap: '1rem',
-              marginBottom: '1rem'
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
             {diasSemana.map((dia, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: '1rem',
-                  background: i === hoy ? colors.sage : colors.cream,
-                  color: i === hoy ? 'white' : colors.sageDark,
-                  borderRadius: '8px',
-                  textAlign: 'center',
-                  fontWeight: 600
-                }}
-              >
+              <div key={i} style={{ padding: '1rem', background: i === hoyIdx ? colors.sage : colors.cream, color: i === hoyIdx ? 'white' : colors.sageDark, borderRadius: '8px', textAlign: 'center', fontWeight: 600, fontFamily: "'Jost', sans-serif" }}>
                 {dia}
               </div>
             ))}
           </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(7, 1fr)',
-              gap: '1rem'
-            }}
-          >
-            {diasSemana.map((dia, i) => (
-              <div
-                key={i}
-                style={{
-                  minHeight: '200px',
-                  padding: '0.75rem',
-                  background: 'white',
-                  border: `1px solid ${colors.cream}`,
-                  borderRadius: '8px'
-                }}
-              >
-                {i === 2 && (
-                  <div
-                    style={{
-                      background: colors.sage,
-                      color: 'white',
-                      padding: '0.5rem',
-                      borderRadius: '6px',
-                      marginBottom: '0.5rem',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    <strong>18:00</strong><br />
-                    María González<br />
-                    Seguimiento
-                  </div>
-                )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1rem' }}>
+            {diasSemana.map((_, i) => (
+              <div key={i} style={{ minHeight: '200px', padding: '0.75rem', background: 'white', border: `1px solid ${colors.cream}`, borderRadius: '8px' }}>
+                {citasPorDia[i].map(cita => {
+                  const hora = new Date(cita.fecha).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' });
+                  const nombre = Array.isArray(cita.usuarios) ? cita.usuarios[0]?.nombre : cita.usuarios?.nombre;
+                  return (
+                    <div key={cita.id} style={{ background: colors.sage, color: 'white', padding: '0.5rem', borderRadius: '6px', marginBottom: '0.5rem', fontSize: '0.85rem', fontFamily: "'Jost', sans-serif" }}>
+                      <strong>{hora}</strong><br />
+                      {nombre || 'Clienta'}<br />
+                      {cita.tipo || 'Sesión'}
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -773,95 +667,76 @@ function Admin() {
         <h1 style={styles.topbarTitle}>Configuración</h1>
       </div>
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Perfil de Ana Karina</h2>
-        <input type="text" placeholder="Nombre" defaultValue="Ana Karina" style={styles.input} />
-        <input type="text" placeholder="Especialidad" defaultValue="Nutricionista · Coach" style={styles.input} />
-        <textarea placeholder="Bio corta" style={styles.textarea} />
-        <input type="url" placeholder="URL de foto" style={styles.input} />
-        <input type="text" placeholder="Redes sociales" style={styles.input} />
-      </div>
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Configuración de la app</h2>
-        <input type="text" placeholder="Nombre de la app" defaultValue="Anabienestar Integral" style={styles.input} />
-        <textarea placeholder="Frase de bienvenida por defecto" style={styles.textarea} />
-        <select style={styles.select}>
-          <option>Color principal</option>
-          <option>Verde (#7a9e7e)</option>
-          <option>Azul</option>
-          <option>Morado</option>
-        </select>
-      </div>
-      <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Frases del día</h2>
-        {[
-          'Cada día es una oportunidad para cuidar tu cuerpo y tu mente con amor y paciencia.',
-          'El progreso no es lineal, pero cada paso cuenta.',
-          'Escuchá a tu cuerpo, él sabe lo que necesita.'
-        ].map((f, i) => (
-          <div
-            key={i}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '1rem',
-              marginBottom: '0.5rem',
-              background: colors.cream,
-              borderRadius: '8px'
-            }}
-          >
-            <div style={{ fontStyle: 'italic' }}>{f}</div>
-            <button style={{ ...styles.buttonPrimary, padding: '0.5rem 1rem' }}>Eliminar</button>
-          </div>
-        ))}
-        <button style={styles.buttonPrimary}>Agregar frase</button>
+        <p style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.85rem', color: colors.sageDark, opacity: 0.7, marginBottom: '1rem' }}>
+          Las clientas ven una frase activa aleatoria cada día en su pantalla de inicio.
+        </p>
+        {loadingFrases ? (
+          <p style={{ fontFamily: "'Jost', sans-serif", color: colors.sageDark }}>Cargando...</p>
+        ) : (
+          <>
+            {frases.map((f) => (
+              <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', marginBottom: '0.5rem', background: f.activa ? colors.cream : '#f0f0f0', borderRadius: '8px', opacity: f.activa ? 1 : 0.6 }}>
+                <div style={{ fontStyle: 'italic', flex: 1, marginRight: '1rem', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem' }}>
+                  {f.texto}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                  <button
+                    style={{ ...styles.buttonPrimary, padding: '0.5rem 0.75rem', fontSize: '0.8rem', background: f.activa ? colors.sage : '#999' }}
+                    onClick={() => handleToggleFrase(f.id, f.activa)}
+                  >
+                    {f.activa ? 'Activa' : 'Inactiva'}
+                  </button>
+                  <button
+                    style={{ ...styles.buttonPrimary, padding: '0.5rem 0.75rem', fontSize: '0.8rem', background: colors.orange }}
+                    onClick={() => handleEliminarFrase(f.id)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+              <input
+                type="text"
+                placeholder="Nueva frase motivacional..."
+                style={{ ...styles.input, flex: 1, margin: 0 }}
+                value={nuevaFrase}
+                onChange={(e) => setNuevaFrase(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAgregarFrase(); }}
+              />
+              <button style={{ ...styles.buttonPrimary, whiteSpace: 'nowrap' }} onClick={handleAgregarFrase}>
+                Agregar
+              </button>
+            </div>
+          </>
+        )}
       </div>
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Checklist por defecto</h2>
-        {['Actividad física', 'Agua', 'Respiración', 'Desayuno', 'Momento para mí'].map((item, i) => (
-          <div
-            key={i}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '0.75rem',
-              marginBottom: '0.5rem',
-              background: colors.cream,
-              borderRadius: '8px'
-            }}
-          >
-            <input type="text" defaultValue={item} style={{ ...styles.input, margin: 0, flex: 1 }} />
-            <button style={{ ...styles.buttonPrimary, padding: '0.5rem 1rem', background: colors.orange }}>
-              Eliminar
-            </button>
+        <p style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.85rem', color: colors.sageDark, opacity: 0.7, marginBottom: '1rem' }}>
+          Estos son los 5 ítems que las clientas ven cada día.
+        </p>
+        {['🏃‍♀️ 30 min de actividad física', '💧 2 litros de agua', '🧘‍♀️ 5 min de respiración', '🥣 Desayuno saludable', '💚 Un momento para mí'].map((item, i) => (
+          <div key={i} style={{ padding: '0.75rem 1rem', marginBottom: '0.5rem', background: colors.cream, borderRadius: '8px', fontFamily: "'Jost', sans-serif", fontSize: '0.9rem' }}>
+            {item}
           </div>
         ))}
-        <button style={styles.buttonPrimary}>Agregar ítem</button>
       </div>
     </>
   );
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'resumen':
-        return renderResumen();
-      case 'clientas':
-        return renderClientas();
-      case 'fichas':
-        return renderFichas();
-      case 'material':
-        return renderMaterial();
-      case 'videos':
-        return renderVideos();
-      case 'notificaciones':
-        return renderNotificaciones();
-      case 'agenda':
-        return renderAgenda();
-      case 'configuracion':
-        return renderConfiguracion();
-      default:
-        return renderResumen();
+      case 'resumen': return renderResumen();
+      case 'clientas': return <AdminClientas />;
+      case 'fichas': return <AdminFichas />;
+      case 'material': return <AdminMaterial />;
+      case 'videos': return <AdminVideos />;
+      case 'notificaciones': return renderNotificaciones();
+      case 'agenda': return renderAgenda();
+      case 'configuracion': return renderConfiguracion();
+      default: return renderResumen();
     }
   };
 
@@ -878,13 +753,8 @@ function Admin() {
           {menuItems.map((item) => (
             <div
               key={item.id}
-              style={{
-                ...styles.menuItem,
-                ...(activeTab === item.id ? styles.menuItemActive : {})
-              }}
-              onClick={() => {
-                setActiveTab(item.id);
-              }}
+              style={{ ...styles.menuItem, ...(activeTab === item.id ? styles.menuItemActive : {}) }}
+              onClick={() => setActiveTab(item.id)}
             >
               <span>{item.icon}</span>
               <span>{item.label}</span>

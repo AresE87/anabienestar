@@ -13,34 +13,47 @@ function Citas() {
   const [newNote, setNewNote] = useState('');
   const [showNewNote, setShowNewNote] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [citas, setCitas] = useState([]);
 
-  // Cargar notas al montar (solo si hay userId)
+  // Cargar notas y citas al montar
   useEffect(() => {
     if (!userId) {
       setLoading(false);
       return;
     }
-    const loadNotas = async () => {
+    const loadData = async () => {
       setLoading(true);
       const fecha = getTodayKey();
       try {
-        const { data, error } = await supabase
-          .from('notas_sesion')
-          .select('texto')
-          .eq('usuario_id', userId)
-          .eq('fecha', fecha)
-          .order('created_at', { ascending: true });
+        const [notasRes, citasRes] = await Promise.all([
+          supabase
+            .from('notas_sesion')
+            .select('texto')
+            .eq('usuario_id', userId)
+            .eq('fecha', fecha)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('citas')
+            .select('*')
+            .eq('usuario_id', userId)
+            .gte('fecha', fecha + 'T00:00:00')
+            .order('fecha', { ascending: true })
+            .limit(5)
+        ]);
 
-        if (!error && data) {
-          setNotes(data.map((row) => row.texto));
+        if (!notasRes.error && notasRes.data) {
+          setNotes(notasRes.data.map((row) => row.texto));
+        }
+        if (!citasRes.error && citasRes.data) {
+          setCitas(citasRes.data);
         }
       } catch (error) {
-        console.error('Error cargando notas:', error);
+        console.error('Error cargando datos:', error);
       } finally {
         setLoading(false);
       }
     };
-    loadNotas();
+    loadData();
   }, [userId]);
 
   const handleAddNote = async () => {
@@ -57,15 +70,15 @@ function Citas() {
         .from('notas_sesion')
         .insert({
           usuario_id: userId,
-          texto: text
-        });
+          texto: text,
+          fecha: fecha
+        }).select();
 
       if (error) {
         console.error('Error guardando nota:', error);
         return;
       }
 
-      // Agregar nota al estado local
       setNotes([...notes, text]);
       setNewNote('');
       setShowNewNote(false);
@@ -81,13 +94,46 @@ function Citas() {
     }
   };
 
-  // Colores (iguales a Home.js)
+  // Colores
   const colors = {
     sage: '#7a9e7e',
     sageDark: '#3d5c41',
     cream: '#f8f4ee',
     gold: '#b8956a'
   };
+
+  // Generar calendario de la semana actual dinámicamente
+  const generateWeekDays = () => {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+
+    const diasNombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    const today = getTodayKey();
+
+    // Check which dates have citas
+    const citasDates = new Set(citas.map(c => c.fecha?.split('T')[0]));
+
+    return diasNombres.map((dia, i) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return {
+        day: dia,
+        date: date.getDate(),
+        isToday: dateKey === today,
+        hasAppointment: citasDates.has(dateKey)
+      };
+    });
+  };
+
+  const weekDays = generateWeekDays();
+
+  // Get current month name
+  const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const now = new Date();
+  const mesActual = `${meses[now.getMonth()]} ${now.getFullYear()}`;
 
   // Estilos
   const styles = {
@@ -143,7 +189,7 @@ function Citas() {
       padding: '0.75rem 0.5rem',
       borderRadius: '0.75rem',
       background: 'white',
-      border: `2px solid transparent`,
+      border: '2px solid transparent',
       cursor: 'pointer',
       transition: 'all 0.2s',
       flexShrink: 0
@@ -164,9 +210,7 @@ function Citas() {
       marginBottom: '0.25rem',
       opacity: 0.7
     },
-    calendarDayLabelToday: {
-      opacity: 1
-    },
+    calendarDayLabelToday: { opacity: 1 },
     calendarDayNumber: {
       fontFamily: "'Jost', sans-serif",
       fontSize: '1.25rem',
@@ -180,9 +224,7 @@ function Citas() {
       background: colors.sage,
       marginTop: '0.25rem'
     },
-    section: {
-      padding: '0 1.25rem 1.5rem'
-    },
+    section: { padding: '0 1.25rem 1.5rem' },
     sectionTitle: {
       fontFamily: "'Playfair Display', Georgia, serif",
       fontSize: '1.1rem',
@@ -198,9 +240,7 @@ function Citas() {
       borderLeft: `4px solid ${colors.sage}`,
       boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
     },
-    appointmentCardInactive: {
-      borderLeftColor: '#e0e0e0'
-    },
+    appointmentCardInactive: { borderLeftColor: '#e0e0e0' },
     appointmentTime: {
       fontFamily: "'Jost', sans-serif",
       fontSize: '0.85rem',
@@ -208,9 +248,7 @@ function Citas() {
       color: colors.sage,
       marginBottom: '0.5rem'
     },
-    appointmentTimeInactive: {
-      color: '#999'
-    },
+    appointmentTimeInactive: { color: '#999' },
     appointmentTitle: {
       fontFamily: "'Jost', sans-serif",
       fontSize: '1rem',
@@ -223,6 +261,14 @@ function Citas() {
       fontSize: '0.85rem',
       color: colors.sageDark,
       opacity: 0.6
+    },
+    emptyText: {
+      fontFamily: "'Jost', sans-serif",
+      fontSize: '0.9rem',
+      color: colors.sageDark,
+      opacity: 0.5,
+      fontStyle: 'italic',
+      padding: '1rem 0'
     },
     notesContainer: {
       background: 'white',
@@ -250,9 +296,7 @@ function Citas() {
       marginBottom: '1rem',
       minHeight: '24px'
     },
-    notesList: {
-      marginTop: '1rem'
-    },
+    notesList: { marginTop: '1rem' },
     noteItem: {
       display: 'flex',
       alignItems: 'flex-start',
@@ -323,17 +367,6 @@ function Citas() {
     }
   };
 
-  // Datos del calendario semanal
-  const weekDays = [
-    { day: 'Lun', date: 16, hasAppointment: false },
-    { day: 'Mar', date: 17, hasAppointment: false },
-    { day: 'Mié', date: 18, hasAppointment: false, isToday: true },
-    { day: 'Jue', date: 19, hasAppointment: true },
-    { day: 'Vie', date: 20, hasAppointment: false },
-    { day: 'Sáb', date: 21, hasAppointment: true },
-    { day: 'Dom', date: 22, hasAppointment: false }
-  ];
-
   if (loading) {
     return (
       <div style={styles.container}>
@@ -342,15 +375,17 @@ function Citas() {
     );
   }
 
+  const today = getTodayKey();
+
   return (
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.headerTitle}>Mis Citas 📅</h1>
-        <p style={styles.headerSubtitle}>Febrero 2026</p>
+        <p style={styles.headerSubtitle}>{mesActual}</p>
       </div>
 
-      {/* Calendario semanal */}
+      {/* Calendario semanal dinámico */}
       <div style={styles.calendarContainer}>
         <div style={styles.calendar}>
           {weekDays.map((day, index) => (
@@ -377,31 +412,42 @@ function Citas() {
         </div>
       </div>
 
-      {/* Próximas citas */}
+      {/* Próximas citas desde Supabase */}
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Próximas citas</h2>
-        
-        {/* Cita de hoy */}
-        <div style={styles.appointmentCard}>
-          <div style={styles.appointmentTime}>Hoy · 18:00 hs</div>
-          <div style={styles.appointmentTitle}>Sesión semanal de seguimiento</div>
-          <div style={styles.appointmentSubtitle}>Con Ana Karina · Videollamada</div>
-        </div>
 
-        {/* Cita futura */}
-        <div style={{
-          ...styles.appointmentCard,
-          ...styles.appointmentCardInactive
-        }}>
-          <div style={{
-            ...styles.appointmentTime,
-            ...styles.appointmentTimeInactive
-          }}>
-            Jue 19 · 10:00 hs
-          </div>
-          <div style={styles.appointmentTitle}>Check-in de peso y medidas</div>
-          <div style={styles.appointmentSubtitle}>Con Ana Karina · Videollamada</div>
-        </div>
+        {citas.length === 0 ? (
+          <p style={styles.emptyText}>No tenés citas agendadas por el momento.</p>
+        ) : (
+          citas.map((cita, i) => {
+            const citaDate = new Date(cita.fecha);
+            const citaDateKey = `${citaDate.getFullYear()}-${String(citaDate.getMonth() + 1).padStart(2, '0')}-${String(citaDate.getDate()).padStart(2, '0')}`;
+            const isToday = citaDateKey === today;
+            const hora = citaDate.toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' });
+            const fechaDisplay = isToday
+              ? `Hoy · ${hora} hs`
+              : `${citaDate.toLocaleDateString('es-UY', { weekday: 'short', day: 'numeric', month: 'short' })} · ${hora} hs`;
+
+            return (
+              <div
+                key={cita.id}
+                style={{
+                  ...styles.appointmentCard,
+                  ...(!isToday ? styles.appointmentCardInactive : {})
+                }}
+              >
+                <div style={{
+                  ...styles.appointmentTime,
+                  ...(!isToday ? styles.appointmentTimeInactive : {})
+                }}>
+                  {fechaDisplay}
+                </div>
+                <div style={styles.appointmentTitle}>{cita.tipo || 'Sesión de seguimiento'}</div>
+                <div style={styles.appointmentSubtitle}>Con Ana Karina · {cita.modalidad || 'Videollamada'}</div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Sección de notas */}
@@ -409,7 +455,7 @@ function Citas() {
         <h2 style={styles.sectionTitle}>📝 Para hablar hoy con Ana</h2>
         <div style={styles.notesContainer}>
           <div style={styles.notesTitle}>Anotá lo que querés contarle</div>
-          
+
           {showNewNote ? (
             <div style={styles.noteItem}>
               <div style={styles.noteDot} />

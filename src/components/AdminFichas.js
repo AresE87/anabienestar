@@ -229,7 +229,13 @@ export default function AdminFichas() {
           .single();
 
         if (errUsuario) {
-          setError(errUsuario.message || 'Error al crear la clienta');
+          const msg = errUsuario.message || 'Error al crear la clienta';
+          setError(msg + (errUsuario.details ? ' — ' + errUsuario.details : ''));
+          setGuardando(false);
+          return;
+        }
+        if (!nuevoUsuario || !nuevoUsuario.id) {
+          setError('No se pudo obtener el ID de la nueva clienta. Verificá que la tabla usuarios tenga DEFAULT gen_random_uuid() en la columna id.');
           setGuardando(false);
           return;
         }
@@ -265,7 +271,7 @@ export default function AdminFichas() {
         por_que: porQue || null,
         notas_karina: notasKarina || null,
         semana_actual: 1
-      });
+      }).select();
 
       if (errFicha) {
         setError(errFicha.message || 'Error al crear la ficha');

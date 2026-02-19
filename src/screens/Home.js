@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 
 // ── Datos estáticos ───────────────────────────────
 const CHECKLIST_ITEMS = [
@@ -18,7 +19,7 @@ const MOODS = [
   { id: 'fire', emoji: '🔥', label: 'Imparable' },
 ];
 
-const FRASE_DEL_DIA = 'Cada pequeño paso cuenta. No necesitás ser perfecta, necesitás ser constante. 💚';
+const FRASE_FALLBACK = 'Cada pequeño paso cuenta. No necesitás ser perfecta, necesitás ser constante. 💚';
 
 const RECETA_HOY = {
   emoji: '🥗',
@@ -40,6 +41,27 @@ export default function Home() {
   } = useApp();
 
   const [showDiaDificil, setShowDiaDificil] = useState(false);
+  const [fraseDelDia, setFraseDelDia] = useState(FRASE_FALLBACK);
+
+  // Fetch frase del día from Supabase
+  useEffect(() => {
+    const fetchFrase = async () => {
+      try {
+        const { data } = await supabase
+          .from('frases')
+          .select('texto')
+          .eq('activa', true);
+        if (data && data.length > 0) {
+          // Pick a random active frase
+          const idx = Math.floor(Math.random() * data.length);
+          setFraseDelDia(data[idx].texto);
+        }
+      } catch (err) {
+        console.error('Error cargando frase:', err);
+      }
+    };
+    fetchFrase();
+  }, []);
 
   const completados = Object.values(checklist).filter(Boolean).length;
 
@@ -82,7 +104,7 @@ export default function Home() {
 
       {/* ── Frase del día ───────────────────────── */}
       <div style={styles.fraseCard}>
-        <p style={styles.fraseText}>{FRASE_DEL_DIA}</p>
+        <p style={styles.fraseText}>{fraseDelDia}</p>
         <p style={styles.fraseAuthor}>— Ana Karina</p>
       </div>
 

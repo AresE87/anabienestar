@@ -64,34 +64,30 @@ export default function AdminMaterial() {
       visible: form.visible,
     };
     try {
-      let result;
+      let error;
       if (editando) {
-        result = await supabase.from('material').update(datos).eq('id', editando);
+        const res = await supabase.from('material').update(datos).eq('id', editando).select();
+        error = res.error;
       } else {
-        result = await supabase.from('material').insert(datos);
+        const res = await supabase.from('material').insert(datos).select();
+        error = res.error;
       }
-      console.log('Resultado guardar:', result);
-      if (result.error) {
-        console.error('Error Supabase:', result.error);
-        alert('Error: ' + result.error.message);
-        setGuardando(false);
+      if (error) {
+        console.error('Error Supabase:', error);
+        alert('Error: ' + error.message);
         return;
       }
-      const { data: nuevos, error: fetchError } = await supabase
+      const { data: nuevos } = await supabase
         .from('material')
         .select('*')
         .order('created_at', { ascending: false });
-      if (fetchError) {
-        console.error('Error fetch:', fetchError);
-      } else {
-        setMateriales(nuevos || []);
-      }
+      setMateriales(nuevos || []);
       setForm({ titulo: '', descripcion: '', paginas: '', url_pdf: '', para_todas: true, visible: true });
       setEditando(null);
       setShowForm(false);
     } catch (err) {
       console.error('Error guardando:', err);
-      alert('Error al guardar: ' + err.message);
+      alert('Error al guardar: ' + (err.message || err));
     } finally {
       setGuardando(false);
     }

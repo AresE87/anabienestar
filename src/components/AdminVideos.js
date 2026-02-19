@@ -66,34 +66,30 @@ export default function AdminVideos() {
       visible: form.visible,
     };
     try {
-      let result;
+      let error;
       if (editando) {
-        result = await supabase.from('videos').update(datos).eq('id', editando);
+        const res = await supabase.from('videos').update(datos).eq('id', editando).select();
+        error = res.error;
       } else {
-        result = await supabase.from('videos').insert(datos);
+        const res = await supabase.from('videos').insert(datos).select();
+        error = res.error;
       }
-      console.log('Resultado guardar:', result);
-      if (result.error) {
-        console.error('Error Supabase:', result.error);
-        alert('Error: ' + result.error.message);
-        setGuardando(false);
+      if (error) {
+        console.error('Error Supabase:', error);
+        alert('Error: ' + error.message);
         return;
       }
-      const { data: nuevos, error: fetchError } = await supabase
+      const { data: nuevos } = await supabase
         .from('videos')
         .select('*')
         .order('created_at', { ascending: false });
-      if (fetchError) {
-        console.error('Error fetch:', fetchError);
-      } else {
-        setVideos(nuevos || []);
-      }
+      setVideos(nuevos || []);
       setForm({ titulo: '', categoria: 'Respiración', duracion: '', url: '', descripcion: '', tipo: 'video', visible: true });
       setEditando(null);
       setShowForm(false);
     } catch (err) {
       console.error('Error guardando:', err);
-      alert('Error al guardar: ' + err.message);
+      alert('Error al guardar: ' + (err.message || err));
     } finally {
       setGuardando(false);
     }
