@@ -7,6 +7,7 @@ import Progreso from './screens/Progreso';
 import Recetas from './screens/Recetas';
 import Material from './screens/Material';
 import Citas from './screens/Citas';
+import Chat from './screens/Chat';
 import Admin from './screens/Admin';
 import Login from './screens/Login';
 import BottomNav from './components/BottomNav';
@@ -76,6 +77,7 @@ function ProtectedApp() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/progreso" element={<Progreso />} />
+          <Route path="/chat" element={<Chat />} />
           <Route path="/recetas" element={<Recetas />} />
           <Route path="/material" element={<Material />} />
           <Route path="/citas" element={<Citas />} />

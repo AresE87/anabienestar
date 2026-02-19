@@ -6,6 +6,8 @@ import AdminVideos from '../components/AdminVideos';
 import AdminClientas from '../components/AdminClientas';
 import AdminFichas from '../components/AdminFichas';
 import AdminRecetas from '../components/AdminRecetas';
+import AdminMensajes from '../components/AdminMensajes';
+import { seedAllData } from '../utils/seedData';
 
 const colors = {
   sageDark: '#3d5c41',
@@ -79,10 +81,15 @@ function Admin() {
   const [agendaForm, setAgendaForm] = useState({ usuario_id: '', fecha: '', hora: '', tipo: 'Seguimiento', modalidad: 'Videollamada', notas: '' });
   const [guardandoCita, setGuardandoCita] = useState(false);
 
+  // ── Mensajes no leidos (badge sidebar) ──
+  const [mensajesNoLeidos, setMensajesNoLeidos] = useState(0);
+
   // ── Configuracion state ──
   const [frases, setFrases] = useState([]);
   const [nuevaFrase, setNuevaFrase] = useState('');
   const [loadingFrases, setLoadingFrases] = useState(true);
+  const [seedLog, setSeedLog] = useState([]);
+  const [seeding, setSeeding] = useState(false);
 
   const menuItems = [
     { id: 'resumen', label: 'Resumen', icon: '📊' },
@@ -91,6 +98,7 @@ function Admin() {
     { id: 'material', label: 'Material', icon: '📚' },
     { id: 'videos', label: 'Videos', icon: '🎥' },
     { id: 'recetas', label: 'Recetas', icon: '🍽️' },
+    { id: 'mensajes', label: 'Mensajes', icon: '💬' },
     { id: 'notificaciones', label: 'Notificaciones', icon: '🔔' },
     { id: 'agenda', label: 'Agenda', icon: '📅' },
     { id: 'configuracion', label: 'Configuración', icon: '⚙️' }
@@ -198,6 +206,21 @@ function Admin() {
     }
   }, []);
 
+  // Cargar conteo de mensajes no leidos (para badge en sidebar)
+  const loadMensajesNoLeidos = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('conversaciones')
+        .select('no_leidos_admin');
+      if (!error && data) {
+        const total = data.reduce((sum, c) => sum + (c.no_leidos_admin || 0), 0);
+        setMensajesNoLeidos(total);
+      }
+    } catch (err) {
+      // Tabla puede no existir todavia
+    }
+  }, []);
+
   // Load data based on active tab
   useEffect(() => {
     if (activeTab === 'resumen') loadResumen();
@@ -205,6 +228,61 @@ function Admin() {
     if (activeTab === 'agenda') loadAgenda();
     if (activeTab === 'configuracion') loadFrases();
   }, [activeTab, loadResumen, loadNotificaciones, loadAgenda, loadFrases]);
+
+  // Cargar mensajes no leidos al inicio y cada 30 segundos
+  useEffect(() => {
+    loadMensajesNoLeidos();
+    const interval = setInterval(loadMensajesNoLeidos, 30000);
+    return () => clearInterval(interval);
+  }, [loadMensajesNoLeidos]);
+
+  // Realtime: escuchar nuevos mensajes para actualizar badge + notificar
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-msg-badge')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'mensajes',
+      }, (payload) => {
+        loadMensajesNoLeidos();
+
+        // Si el mensaje no es del admin, notificar
+        if (payload.new && payload.new.remitente_id !== undefined) {
+          // Notificacion del navegador
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Nuevo mensaje de clienta', {
+              body: payload.new.contenido || 'Te envio un archivo',
+              icon: '💬',
+              tag: 'chat-' + payload.new.id,
+            });
+          }
+          // Flash en titulo de pagina
+          const originalTitle = document.title;
+          document.title = '💬 Nuevo mensaje!';
+          setTimeout(() => { document.title = originalTitle; }, 5000);
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversaciones',
+      }, () => {
+        loadMensajesNoLeidos();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadMensajesNoLeidos]);
+
+  // Pedir permiso de notificaciones del navegador para Admin
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   // ══════════════════════════════════════════════
   // HANDLERS
@@ -756,6 +834,64 @@ function Admin() {
           </div>
         ))}
       </div>
+
+      {/* Datos de muestra */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Datos de muestra</h2>
+        <p style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.85rem', color: colors.sageDark, opacity: 0.7, marginBottom: '1rem' }}>
+          Si las secciones de Recetas, Material o Videos aparecen vacias, usa este boton para llenarlas con datos de ejemplo.
+        </p>
+        <button
+          style={{ ...styles.buttonPrimary, opacity: seeding ? 0.5 : 1 }}
+          onClick={async () => {
+            setSeeding(true);
+            setSeedLog([]);
+            try {
+              const result = await seedAllData();
+              setSeedLog(result);
+            } catch (err) {
+              setSeedLog(['Error general: ' + (err.message || err)]);
+            } finally {
+              setSeeding(false);
+            }
+          }}
+          disabled={seeding}
+        >
+          {seeding ? 'Insertando datos...' : '🌱 Insertar datos de muestra'}
+        </button>
+        {seedLog.length > 0 && (
+          <div style={{ marginTop: '1rem', padding: '1rem', background: colors.cream, borderRadius: '8px' }}>
+            {seedLog.map((line, i) => (
+              <div key={i} style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.85rem', color: line.includes('Error') ? colors.orange : colors.sageDark, marginBottom: '0.25rem' }}>
+                {line.includes('Error') ? '❌' : '✅'} {line}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Integraciones */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Integraciones</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div style={{ padding: '1.25rem', background: colors.cream, borderRadius: '12px', textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📨</div>
+            <div style={{ fontFamily: "'Jost', sans-serif", fontWeight: 600, color: colors.sageDark, marginBottom: '0.25rem' }}>Telegram</div>
+            <div style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.8rem', color: colors.sageDark, opacity: 0.7 }}>
+              {telegramStats.activos > 0
+                ? `${telegramStats.activos} clienta${telegramStats.activos !== 1 ? 's' : ''} conectada${telegramStats.activos !== 1 ? 's' : ''}`
+                : 'No configurado'}
+            </div>
+          </div>
+          <div style={{ padding: '1.25rem', background: colors.cream, borderRadius: '12px', textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔔</div>
+            <div style={{ fontFamily: "'Jost', sans-serif", fontWeight: 600, color: colors.sageDark, marginBottom: '0.25rem' }}>Push Notifications</div>
+            <div style={{ fontFamily: "'Jost', sans-serif", fontSize: '0.8rem', color: colors.sageDark, opacity: 0.7 }}>
+              Listo para activar
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 
@@ -767,6 +903,7 @@ function Admin() {
       case 'material': return <AdminMaterial />;
       case 'videos': return <AdminVideos />;
       case 'recetas': return <AdminRecetas />;
+      case 'mensajes': return <AdminMensajes />;
       case 'notificaciones': return renderNotificaciones();
       case 'agenda': return renderAgenda();
       case 'configuracion': return renderConfiguracion();
@@ -791,7 +928,18 @@ function Admin() {
               onClick={() => setActiveTab(item.id)}
             >
               <span>{item.icon}</span>
-              <span>{item.label}</span>
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.id === 'mensajes' && mensajesNoLeidos > 0 && (
+                <span style={{
+                  minWidth: 20, height: 20, borderRadius: 10,
+                  background: colors.orange, color: 'white',
+                  fontSize: '0.72rem', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 5px', fontFamily: "'Jost', sans-serif",
+                }}>
+                  {mensajesNoLeidos}
+                </span>
+              )}
             </div>
           ))}
         </nav>

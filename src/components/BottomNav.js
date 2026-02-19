@@ -4,8 +4,8 @@ import { NavLink, useLocation } from 'react-router-dom';
 const navItems = [
   { path: '/', label: 'Inicio', icon: '🏠' },
   { path: '/progreso', label: 'Progreso', icon: '📊' },
+  { path: '/chat', label: 'Chat', icon: '💬' },
   { path: '/recetas', label: 'Recetas', icon: '🍽️' },
-  { path: '/material', label: 'Material', icon: '📚' },
   { path: '/citas', label: 'Citas', icon: '📅' },
 ];
 
