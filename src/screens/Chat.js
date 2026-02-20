@@ -12,8 +12,11 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [anaTyping, setAnaTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const lastTypingSentRef = useRef(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -131,6 +134,42 @@ export default function Chat() {
     return () => {
       supabase.removeChannel(channel);
     };
+  }, [conversacionId, userId]);
+
+  // Typing indicator: escuchar cuando Ana escribe
+  useEffect(() => {
+    if (!conversacionId) return;
+
+    const typingChannel = supabase
+      .channel(`typing-${conversacionId}`)
+      .on('broadcast', { event: 'user_typing' }, (payload) => {
+        // Solo mostrar si es Ana escribiendo (no yo)
+        if (payload.payload?.userId !== userId) {
+          setAnaTyping(true);
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setAnaTyping(false), 3000);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      setAnaTyping(false);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(typingChannel);
+    };
+  }, [conversacionId, userId]);
+
+  // Enviar broadcast de typing al escribir
+  const sendTypingBroadcast = useCallback(() => {
+    if (!conversacionId) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return; // Debounce 2s
+    lastTypingSentRef.current = now;
+    supabase.channel(`typing-${conversacionId}`).send({
+      type: 'broadcast',
+      event: 'user_typing',
+      payload: { userId },
+    }).catch(() => {});
   }, [conversacionId, userId]);
 
   // Auto-scroll cuando llegan mensajes
@@ -371,6 +410,19 @@ export default function Chat() {
             </div>
           ))
         )}
+        {/* Typing indicator */}
+        {anaTyping && (
+          <div style={styles.typingRow}>
+            <div style={styles.typingBubble}>
+              <span style={styles.typingDots}>
+                <span style={styles.dot1}>●</span>
+                <span style={styles.dot2}>●</span>
+                <span style={styles.dot3}>●</span>
+              </span>
+              <span style={styles.typingLabel}>Ana esta escribiendo...</span>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -404,7 +456,10 @@ export default function Chat() {
             placeholder="Escribe un mensaje..."
             style={styles.textInput}
             value={nuevoMensaje}
-            onChange={(e) => setNuevoMensaje(e.target.value)}
+            onChange={(e) => {
+              setNuevoMensaje(e.target.value);
+              sendTypingBroadcast();
+            }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
             disabled={enviando}
           />
@@ -618,5 +673,36 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+  },
+  typingRow: {
+    display: 'flex',
+    justifyContent: 'flex-start',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  typingBubble: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 14px',
+    borderRadius: 18,
+    borderBottomLeftRadius: 4,
+    backgroundColor: 'white',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  },
+  typingDots: {
+    display: 'flex',
+    gap: 2,
+    fontSize: 10,
+    color: '#7a9e7e',
+  },
+  dot1: { animation: 'pulse 1.2s infinite 0s' },
+  dot2: { animation: 'pulse 1.2s infinite 0.2s' },
+  dot3: { animation: 'pulse 1.2s infinite 0.4s' },
+  typingLabel: {
+    fontSize: 12,
+    color: '#7a9e7e',
+    fontStyle: 'italic',
+    fontFamily: 'Jost, sans-serif',
   },
 };

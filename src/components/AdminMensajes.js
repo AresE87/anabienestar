@@ -10,6 +10,40 @@ const colors = {
   orange: '#c4762a',
 };
 
+// Sonido de notificacion sutil (ding corto generado como Data URI)
+const NOTIFICATION_SOUND = 'data:audio/wav;base64,UklGRl9vT19teleQAIBAAEARQAxABAACABkYXRhId29vT18A' +
+  // Mini beep WAV — se genera en runtime con AudioContext como fallback
+  '';
+
+const RESPUESTAS_RAPIDAS = [
+  '¡Hola! ¿Como estas hoy?',
+  '¡Excelente progreso!',
+  'Recorda completar tu checklist',
+  '¿Tenes alguna duda?',
+  '¡Nos vemos en la proxima sesion!',
+  'Perfecto, gracias por compartir 🌿',
+  '¿Como te sentiste con las comidas esta semana?',
+];
+
+// Funcion para reproducir sonido de notificacion
+const playNotificationSound = () => {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.frequency.value = 830;
+    oscillator.type = 'sine';
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + 0.4);
+  } catch (e) {
+    // Navegador bloquea autoplay — no pasa nada
+  }
+};
+
 export default function AdminMensajes() {
   const { perfil } = useAuth();
   const adminId = perfil?.id;
@@ -22,8 +56,17 @@ export default function AdminMensajes() {
   const [loadingMensajes, setLoadingMensajes] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [showRespuestas, setShowRespuestas] = useState(false);
+  const [peerTyping, setPeerTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const selectedConvRef = useRef(null);
+
+  // Mantener ref actualizada para usar en callbacks de realtime
+  useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -103,7 +146,7 @@ export default function AdminMensajes() {
     }
   }, [selectedConv, loadMensajes]);
 
-  // Realtime: nuevos mensajes
+  // Realtime: nuevos mensajes + sonido de notificacion
   useEffect(() => {
     const channel = supabase
       .channel('admin-chat-all')
@@ -113,14 +156,25 @@ export default function AdminMensajes() {
         table: 'mensajes',
       }, (payload) => {
         const nuevoMsg = payload.new;
+        const currentConv = selectedConvRef.current;
 
         // Si es de la conversacion activa, agregar al chat
-        if (selectedConv && nuevoMsg.conversacion_id === selectedConv.id) {
+        if (currentConv && nuevoMsg.conversacion_id === currentConv.id) {
           setMensajes(prev => [...prev, nuevoMsg]);
           // Auto-marcar como leido
           if (nuevoMsg.remitente_id !== adminId) {
             supabase.from('mensajes').update({ leido: true }).eq('id', nuevoMsg.id);
-            supabase.from('conversaciones').update({ no_leidos_admin: 0 }).eq('id', selectedConv.id);
+            supabase.from('conversaciones').update({ no_leidos_admin: 0 }).eq('id', currentConv.id);
+          }
+        }
+
+        // Sonido de notificacion cuando un mensaje llega de una clienta
+        if (nuevoMsg.remitente_id !== adminId) {
+          // Suena si: no hay conv activa, o el mensaje es de otra conv, o el tab no esta enfocado
+          const esOtraConv = !currentConv || nuevoMsg.conversacion_id !== currentConv.id;
+          const tabNoEnfocado = document.hidden;
+          if (esOtraConv || tabNoEnfocado) {
+            playNotificationSound();
           }
         }
 
@@ -132,17 +186,56 @@ export default function AdminMensajes() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedConv, adminId, loadConversaciones]);
+  }, [adminId, loadConversaciones]);
+
+  // Realtime: typing indicator via Broadcast
+  useEffect(() => {
+    if (!selectedConv) return;
+
+    const typingChannel = supabase
+      .channel(`typing-${selectedConv.id}`)
+      .on('broadcast', { event: 'user_typing' }, (payload) => {
+        // Solo mostrar si es la clienta escribiendo (no el admin)
+        if (payload.payload?.userId !== adminId) {
+          setPeerTyping(true);
+          // Limpiar timeout anterior
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setPeerTyping(false), 3000);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      setPeerTyping(false);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(typingChannel);
+    };
+  }, [selectedConv, adminId]);
 
   // Auto-scroll
   useEffect(() => {
     scrollToBottom();
   }, [mensajes]);
 
+  // Enviar broadcast de typing al canal de la conversacion activa
+  const lastTypingSentRef = useRef(0);
+  const sendTypingBroadcast = useCallback(() => {
+    if (!selectedConv) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return; // Debounce 2s
+    lastTypingSentRef.current = now;
+    supabase.channel(`typing-${selectedConv.id}`).send({
+      type: 'broadcast',
+      event: 'user_typing',
+      payload: { userId: adminId },
+    }).catch(() => {});
+  }, [selectedConv, adminId]);
+
   // Enviar mensaje
   const handleEnviar = async () => {
     if (!nuevoMensaje.trim() || !selectedConv || enviando) return;
     setEnviando(true);
+    setShowRespuestas(false);
     const texto = nuevoMensaje.trim();
     setNuevoMensaje('');
 
@@ -441,11 +534,38 @@ export default function AdminMensajes() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* Typing indicator */}
+              {peerTyping && (
+                <div style={styles.typingIndicator}>
+                  <span style={styles.typingDot}>●</span>
+                  <span style={styles.typingText}>Escribiendo...</span>
+                </div>
+              )}
+
               {/* Input */}
               <div style={styles.chatInput}>
                 {subiendo && (
                   <div style={styles.uploadBanner}>Subiendo archivo...</div>
                 )}
+
+                {/* Menu de respuestas rapidas */}
+                {showRespuestas && (
+                  <div style={styles.respuestasMenu}>
+                    {RESPUESTAS_RAPIDAS.map((resp, i) => (
+                      <button
+                        key={i}
+                        style={styles.respuestaItem}
+                        onClick={() => {
+                          setNuevoMensaje(resp);
+                          setShowRespuestas(false);
+                        }}
+                      >
+                        {resp}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div style={styles.inputRow}>
                   <button
                     style={styles.attachBtn}
@@ -462,12 +582,26 @@ export default function AdminMensajes() {
                     style={{ display: 'none' }}
                     onChange={handleFileSelect}
                   />
+                  <button
+                    style={{
+                      ...styles.quickReplyBtn,
+                      background: showRespuestas ? colors.gold : colors.cream,
+                      color: showRespuestas ? 'white' : colors.gold,
+                    }}
+                    onClick={() => setShowRespuestas(!showRespuestas)}
+                    title="Respuestas rapidas"
+                  >
+                    ⚡
+                  </button>
                   <input
                     type="text"
                     placeholder="Escribe tu respuesta..."
                     style={styles.textInput}
                     value={nuevoMensaje}
-                    onChange={(e) => setNuevoMensaje(e.target.value)}
+                    onChange={(e) => {
+                      setNuevoMensaje(e.target.value);
+                      sendTypingBroadcast();
+                    }}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
                     disabled={enviando}
                   />
@@ -795,5 +929,58 @@ const styles = {
     fontWeight: 500,
     cursor: 'pointer',
     flexShrink: 0,
+  },
+  quickReplyBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    border: 'none',
+    fontSize: 18,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'all 0.2s',
+  },
+  respuestasMenu: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.4rem',
+    padding: '0.75rem',
+    marginBottom: '0.5rem',
+    background: colors.cream,
+    borderRadius: 12,
+    animation: 'fadeIn 0.15s ease',
+  },
+  respuestaItem: {
+    padding: '0.45rem 0.85rem',
+    borderRadius: 16,
+    border: `1px solid rgba(61,92,65,0.15)`,
+    background: 'white',
+    fontFamily: "'Jost', sans-serif",
+    fontSize: '0.82rem',
+    color: colors.sageDark,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap',
+  },
+  typingIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    padding: '0.35rem 1.25rem',
+    background: 'white',
+  },
+  typingDot: {
+    color: colors.sage,
+    fontSize: '0.7rem',
+    animation: 'pulse 1s infinite',
+  },
+  typingText: {
+    fontFamily: "'Jost', sans-serif",
+    fontSize: '0.8rem',
+    color: colors.sage,
+    fontStyle: 'italic',
   },
 };

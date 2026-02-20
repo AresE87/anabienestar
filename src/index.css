@@ -147,3 +147,14 @@ button {
   text-overflow: ellipsis;
   max-width: 100%;
 }
+
+/* Animaciones para typing indicator y respuestas rapidas */
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -164,16 +164,16 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 ## PASOS FUTUROS DEL PROYECTO (para proximas sesiones con Claude)
 
 ### Prioridad Alta
-- [ ] **Acceso a Material**: La pantalla Material.js existe pero ya no esta en el BottomNav (fue reemplazada por Chat). Opciones: (a) agregar enlace desde Home, (b) crear un menu hamburguesa, (c) poner 6 items en el BottomNav con scroll
+- [x] **Acceso a Material**: Agregada pestana Material al BottomNav con 6 items (v4.4)
 - [ ] **Edge function push notifications para chat**: Cuando una clienta envia un mensaje, enviar push notification al celular de Ana (no solo la notificacion del navegador)
 - [ ] **Archivo public/sw.js**: Crear el Service Worker para manejar push events (mostrar notificacion nativa en el celular de Ana)
 
 ### Prioridad Media
-- [ ] **Sonido de notificacion**: Reproducir un sonido sutil cuando Ana recibe un mensaje en el dashboard
-- [ ] **Indicador "escribiendo..."**: Mostrar cuando la otra persona esta escribiendo
+- [x] **Sonido de notificacion**: Ding sutil via AudioContext cuando llega mensaje de clienta (v4.4.1)
+- [x] **Indicador "escribiendo..."**: Supabase Broadcast bidireccional entre Chat.js y AdminMensajes.js (v4.4.1)
 - [ ] **Indicador "en linea"**: Mostrar cuando la clienta/Ana esta conectada
 - [ ] **Mensajes de voz**: Boton para grabar y enviar audios
-- [ ] **Respuestas rapidas para Ana**: Templates de respuestas frecuentes en el chat admin
+- [x] **Respuestas rapidas para Ana**: Boton ⚡ con 7 templates frecuentes en AdminMensajes.js (v4.4.1)
 - [ ] **Buscar en mensajes**: Buscar texto dentro de las conversaciones
 
 ### Prioridad Baja
@@ -266,12 +266,13 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Formulario "+ Agregar material" para que Ana suba nuevos documentos a futuro
 4. **Paso manual para Edgardo**: ejecutar `supabase_material_alter.sql` en Supabase SQL Editor
 
-### Sesion 7 — 2026-02-19 (v4.4: OAuth Google/Apple + BottomNav 6 pestanas)
-1. **Login con Google y Apple**:
-   - Login.js: botones "Continuar con Google" y "Continuar con Apple" debajo del form
-   - Iconos SVG inline (sin dependencias externas)
-   - Divider "o continuar con" separa form de botones OAuth
+### Sesion 7 — 2026-02-19 (v4.4: OAuth Google + BottomNav 6 pestanas)
+1. **Login con Google**:
+   - Login.js: boton "Continuar con Google" debajo del form
+   - Icono SVG inline de Google (sin dependencias externas)
+   - Divider "o continuar con" separa form de boton OAuth
    - Usa `signInWithOAuth` de Supabase con redirect a `window.location.origin`
+   - Apple removido (requiere cuenta de developer de $99/ano)
 2. **Auto-crear perfil para usuarios nuevos**:
    - `supabase_oauth_setup.sql`: trigger PostgreSQL en `auth.users` INSERT
    - Crea automaticamente fila en `usuarios` con rol='clienta', nombre del provider
@@ -283,7 +284,27 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 4. **Pasos manuales para Edgardo**:
    - Ejecutar `supabase_oauth_setup.sql` en SQL Editor
    - Habilitar Google provider en Supabase Dashboard → Authentication → Providers
-   - (Opcional) Habilitar Apple provider (requiere Apple Developer account)
+
+### Sesion 8 — 2026-02-19 (v4.4.1: Sonido, Typing, Respuestas rapidas)
+1. **Boton Apple removido del Login**:
+   - Eliminado AppleIcon SVG, boton "Continuar con Apple" y estilo appleBtn
+   - Solo queda login email/password + Google
+2. **Sonido de notificacion para admin**:
+   - AdminMensajes.js: funcion `playNotificationSound()` usa AudioContext para generar un ding sutil (830Hz, sine wave, 0.4s)
+   - Suena cuando llega mensaje de clienta y: la conversacion activa es otra, o el tab no esta enfocado
+   - Catch silencioso para navegadores que bloquean autoplay
+3. **Indicador "Escribiendo..."** (bidireccional):
+   - Usa Supabase Broadcast (sin tabla extra): canal `typing-{conversacionId}`
+   - Chat.js: envia broadcast `user_typing` con debounce de 2s al escribir, muestra "Ana esta escribiendo..." con animacion de puntos
+   - AdminMensajes.js: envia broadcast al escribir, muestra "Escribiendo..." arriba del input
+   - Auto-desaparece despues de 3 segundos sin actividad
+4. **Respuestas rapidas para Ana**:
+   - Boton ⚡ al lado del input en AdminMensajes.js
+   - 7 templates predefinidos en menu desplegable con animacion fadeIn
+   - Al seleccionar, se inserta en el input (no se envia directo) para que Ana pueda editar
+   - Toggle: boton cambia color gold cuando el menu esta abierto
+5. **Animaciones CSS**:
+   - Agregadas `@keyframes pulse` y `@keyframes fadeIn` en index.css
 
 ---
 
