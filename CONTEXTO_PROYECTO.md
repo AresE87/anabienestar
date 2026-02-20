@@ -377,6 +377,82 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 - `"'NOTIFICATION_SOUND' is assigned but never used"` — constante obsoleta en AdminMensajes.js. Fix: eliminada
 - **Auth sesion corrupta**: token refresh falla al reabrir pestana → pantalla "sin perfil". Fix: v5.6 (limpieza automatica)
 
+### Sesion 10 — 2026-02-20 (setup Supabase + fix auth race condition + Google OAuth)
+
+**Contexto**: Edgardo trabajo en el proyecto desde otra PC y pusheo hasta v5.6. Esta sesion fue para: ejecutar SQLs en Supabase, configurar Google OAuth, y resolver el bug persistente de "Tu cuenta no tiene perfil asignado".
+
+#### Parte 1: Setup de Supabase (pasos manuales completados)
+1. **5 SQLs ejecutados exitosamente** en el SQL Editor de Supabase:
+   - `supabase_chat.sql` — tablas conversaciones, mensajes, indices, RLS, bucket chat-media
+   - `supabase_material_alter.sql` — columnas para_todas, visible, url_pdf en tabla material
+   - `supabase_material_usuarios.sql` — junction table material↔usuarios, RLS
+   - `supabase_oauth_setup.sql` — trigger auto-crear perfil en login OAuth
+   - `supabase_v5_migration.sql` — tipo 'audio' en mensajes + tablas programa grupal
+2. **Storage verificado**: bucket `chat-media` PUBLIC con 2 politicas activas
+3. **Realtime verificado**: tablas `mensajes` y `conversaciones` con toggle activado (y muchas mas)
+4. **Google OAuth verificado**: provider habilitado en Supabase con Client ID y Secret
+
+#### Parte 2: Investigacion del bug de auth
+**Sintoma**: Al abrir la app en navegacion normal, muestra "Tu cuenta no tiene perfil asignado". En incognito funciona perfecto. Pasa tanto con admin como con clienta.
+
+**Intentos que NO funcionaron:**
+1. `refreshSession()` + retry de fetchPerfil → el perfil seguia sin encontrarse
+2. fetchPerfil con 3 capas (ID → email → crear) → las queries del Supabase JS client se colgaban
+
+**Hallazgo clave con pantalla de diagnostico (raw fetch):**
+- Se agrego un componente `DebugNoPerfil` en App.js que usa `fetch()` directo al REST API de Supabase
+- **Raw fetch funciona perfecto** (status 200, devuelve las 3 filas de usuarios)
+- Los IDs coinciden entre auth y tabla
+- PERO el Supabase JS client se cuelga al hacer queries
+
+**Hallazgo del usuario**: "el perfil aparecio brevemente y despues desaparecio"
+
+**Causa raiz identificada: RACE CONDITION entre INITIAL_SESSION y TOKEN_REFRESHED**
+1. Supabase restaura sesion de localStorage → dispara `INITIAL_SESSION`
+2. `fetchPerfil` se ejecuta con token viejo → **funciona** (RLS deshabilitado en usuarios)
+3. Supabase refresca el token en background → dispara `TOKEN_REFRESHED`
+4. `fetchPerfil` se ejecuta OTRA VEZ → se cuelga o falla → **sobreescribe perfil con null**
+5. El usuario ve el perfil por un instante y luego desaparece
+
+**Fix aplicado: sequence counter (eventSeqRef)**
+- Cada evento de `onAuthStateChange` recibe un numero de secuencia incremental
+- Despues del `await queryPerfil()`, se verifica si el evento sigue siendo el mas reciente
+- Si llego un evento mas nuevo mientras esperabamos, el resultado viejo se DESCARTA
+- `queryPerfil` ya no modifica estado directamente (solo retorna data)
+- Solo se actualiza `perfil` si `queryPerfil` devuelve datos (no sobreescribe con null)
+
+**Estado del componente DebugNoPerfil**: sigue activo en App.js como red de seguridad. Muestra diagnostico completo si el perfil no carga. Incluye:
+- Info del auth user (ID, email)
+- Raw fetch directo al REST API (bypass del JS client)
+- Deteccion de IDs que no coinciden con auto-fix
+- Botones Reintentar y Cerrar sesion
+
+#### Parte 3: Google OAuth
+1. **Redirect a localhost**: Al hacer login con Google, Supabase redirigia a `localhost:3000` en vez de la app en Vercel. **Fix**: cambiar Site URL en Supabase → Authentication → URL Configuration a `https://anabienestar.vercel.app`
+2. **"Unable to exchange external code"**: Despues de corregir la URL, Google OAuth daba error de intercambio de codigo. **Fix**: en Google Cloud Console → Credentials → OAuth Client ID:
+   - Authorized JavaScript origins: `https://anabienestar.vercel.app`
+   - Authorized redirect URIs: `https://rnbyxwcrtulxctplerqs.supabase.co/auth/v1/callback`
+3. **Estado**: credenciales configuradas, falta probar si el exchange funciona despues de la propagacion de Google (puede tardar 5 min a unas horas)
+
+#### Commits de esta sesion
+- `cf46b84` — fix: auth sesion expirada (refreshSession + retry)
+- `44732c7` — fix: solucion definitiva auth (3 capas fallback)
+- `21480cf` — debug: pantalla diagnostico con raw fetch
+- `8b79217` — fix: diagnostico con raw fetch + auto-fix IDs
+- `db6f66f` — fix: race condition INITIAL_SESSION vs TOKEN_REFRESHED
+
+#### Sospechas y cosas a investigar
+- **¿Por que el Supabase JS client se cuelga?** El raw fetch funciona, pero `supabase.from('usuarios').select()` se cuelga en ciertos casos. Puede ser un bug del cliente JS cuando el token esta en proceso de refresh. Investigar si hay un issue abierto en supabase-js.
+- **¿El fix de sequence counter resuelve el 100% de los casos?** Falta confirmar. Si sigue fallando, alternativa: reemplazar `queryPerfil` por raw fetch directo al REST API (bypass total del Supabase JS client para la query de perfil).
+- **RLS en tabla usuarios**: esta DESHABILITADO. Para produccion se deberia habilitar con politica `SELECT` para que cada usuario pueda leer su propia fila y admin pueda leer todas.
+
+#### Mejoras pendientes para proximas sesiones
+- [ ] **Quitar DebugNoPerfil**: una vez confirmado que el fix funciona, reemplazar por la pantalla original con mensaje amigable + boton logout
+- [ ] **Google OAuth end-to-end**: probar login con Google completo (crear cuenta, redirect, auto-crear perfil via trigger)
+- [ ] **Habilitar RLS en usuarios**: crear politicas SELECT/UPDATE para usuarios + full access para admin
+- [ ] **Service Worker (public/sw.js)**: sigue pendiente para push notifications nativas
+- [ ] **Investigar Supabase JS client hanging**: puede necesitar upgrade de version o workaround
+
 ---
 
 ## PREFERENCIAS DEL USUARIO
@@ -386,3 +462,4 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 - Persistencia de contexto entre sesiones (bitacora)
 - El proyecto es para una nutricionista real (Ana Karina) en Uruguay
 - Cada cambio debe quedar registrado en la bitacora de este archivo
+- **REGLA OBLIGATORIA**: Despues de CADA push, actualizar inmediatamente esta bitacora con lo que se hizo, lo que se hablo, sospechas, decisiones tomadas y contexto relevante. NADA se debe perder entre sesiones. Si hay conversacion importante (bugs encontrados, ideas, pendientes), incluirla en la bitacora antes de terminar.
