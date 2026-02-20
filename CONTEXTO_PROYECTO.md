@@ -111,6 +111,7 @@ src/
 | v5.4 | Estadisticas de engagement (Recharts) + exportar ficha a PDF |
 | v5.5 | Scaffolding: modo oscuro (ThemeContext), multi-idioma (i18n ES/PT), programa grupal (schema + placeholder) |
 | v5.6 | Fix auth: sesion corrupta al reabrir pestana (limpieza automatica de tokens expirados) |
+| v5.7 | **Fix auth definitivo**: desactivar Web Locks API en Supabase JS client (causa raiz de queries colgadas) |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -434,17 +435,30 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Authorized redirect URIs: `https://rnbyxwcrtulxctplerqs.supabase.co/auth/v1/callback`
 3. **Estado**: credenciales configuradas, falta probar si el exchange funciona despues de la propagacion de Google (puede tardar 5 min a unas horas)
 
-#### Parte 4: Descubrimiento final — Supabase JS client roto
-**Prueba definitiva**: el diagnostico mostro que TANTO en navegacion normal como en incognito:
+#### Parte 4: Descubrimiento — Supabase JS client se cuelga
+**Prueba con diagnostico**: TANTO en navegacion normal como en incognito:
 - ✅ Raw fetch funciona perfecto (status 200, devuelve datos, IDs coinciden)
 - ❌ `supabase.from('usuarios').select()` se cuelga SIEMPRE
 - ❌ `refetchPerfil` (que usa el JS client) tambien falla
 
-**Conclusion**: El problema NUNCA fue race condition ni tokens expirados. El Supabase JS client tiene un bug donde las queries se cuelgan indefinidamente. Solo auth funciona (login/logout/getSession), pero las queries a tablas no.
+Esto descarto race condition y tokens expirados como causa. Se probo raw fetch como workaround intermedio.
 
-**Fix definitivo**: `queryPerfil` ahora usa `fetch()` directo al REST API de Supabase (mismo endpoint que el JS client usaria). Con timeout de 5s. Las 3 capas de fallback (ID → email → crear) siguen funcionando pero via raw fetch.
+#### Parte 5: CAUSA RAIZ ENCONTRADA — Web Locks API ✅ RESUELTO
+**Causa raiz**: Supabase JS v2.97.0 usa `navigator.locks` (Web Locks API) para coordinar el refresh de tokens entre pestanas. En la red corporativa del usuario (ccu.uy), esta API se **cuelga indefinidamente** → TODAS las queries de `supabase.from().select()` quedan bloqueadas esperando el lock que nunca se libera.
 
-**Nota**: el resto de la app (Chat, Admin, Home, etc.) sigue usando el Supabase JS client para queries. Si esas pantallas tambien fallan, habra que investigar si es un problema de version de @supabase/supabase-js o de configuracion. Posible causa: la opcion `lock` del auth client que bloquea requests mientras refresca token.
+**Por que el raw fetch funcionaba**: `fetch()` directo no pasa por el sistema de locks de Supabase. Va directo al REST API.
+
+**Fix definitivo** (1 linea en `src/supabaseClient.js`):
+```javascript
+lock: async (_name, _acquireTimeout, fn) => fn(),
+```
+Esto provee una funcion lock no-op que ejecuta el callback inmediatamente sin usar `navigator.locks`. Tambien se agrego `flowType: 'implicit'` para OAuth.
+
+**Confirmado por el usuario**: login/logout funciona correctamente para admin y clienta en todos los escenarios (sesion guardada, login manual, cambio entre cuentas, incognito).
+
+**AuthContext.js vuelto a la normalidad**: usa `supabase.from().select()` normal (ya no necesita raw fetch). Mantiene 3 capas de fallback (ID → email → crear) y sequence counter para race conditions.
+
+**App.js limpiado**: DebugNoPerfil removido, pantalla simple "Cargando perfil..." con botones Reintentar y Cerrar sesion como red de seguridad.
 
 #### Commits de esta sesion
 - `cf46b84` — fix: auth sesion expirada (refreshSession + retry)
@@ -453,18 +467,19 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 - `8b79217` — fix: diagnostico con raw fetch + auto-fix IDs
 - `db6f66f` — fix: race condition INITIAL_SESSION vs TOKEN_REFRESHED
 - `a6d3dbc` — fix: reemplazar queryPerfil por raw fetch (bypass JS client)
+- `e1049fd` — fix: separar carga de perfil del listener de auth
+- `19f6ed8` — **fix: desactivar Web Locks API (SOLUCION DEFINITIVA)**
 
-#### Sospechas y cosas a investigar
-- **¿Por que el Supabase JS client se cuelga?** Raw fetch funciona pero `supabase.from().select()` no. Posibles causas: (1) auth lock que bloquea requests durante token refresh, (2) bug en la version de @supabase/supabase-js, (3) conflicto con la config de persistSession/storageKey. Revisar version en package.json y comparar con changelogs.
-- **¿Afecta a otras pantallas?** Solo se confirmo en queryPerfil. Si Chat, Admin u otras pantallas tambien se cuelgan, confirma que es un problema global del JS client y habra que hacer upgrade o workaround.
-- **RLS en tabla usuarios**: esta DESHABILITADO. Para produccion se deberia habilitar con politica `SELECT` para que cada usuario pueda leer su propia fila y admin pueda leer todas.
+#### Lecciones aprendidas
+- **Web Locks API puede colgarse** en redes corporativas, VPNs o navegadores con ciertas extensiones. Siempre proveer un lock no-op como fallback si la app se va a usar en entornos corporativos.
+- **Raw fetch como herramienta de diagnostico**: cuando el JS client falla, un fetch directo al REST API permite aislar si el problema es del cliente o del servidor.
+- **Supabase JS client v2.97**: el lock se introdujo para coordinar refresh entre tabs. Es seguro desactivarlo para apps single-tab o PWAs.
 
 #### Mejoras pendientes para proximas sesiones
-- [ ] **Quitar DebugNoPerfil**: una vez confirmado que el fix funciona, reemplazar por la pantalla original con mensaje amigable + boton logout
 - [ ] **Google OAuth end-to-end**: probar login con Google completo (crear cuenta, redirect, auto-crear perfil via trigger)
 - [ ] **Habilitar RLS en usuarios**: crear politicas SELECT/UPDATE para usuarios + full access para admin
 - [ ] **Service Worker (public/sw.js)**: sigue pendiente para push notifications nativas
-- [ ] **Investigar Supabase JS client hanging**: puede necesitar upgrade de version o workaround
+- [ ] **Probar toda la app end-to-end**: Chat, Progreso, Recetas, Material, Citas — verificar que todas las pantallas funcionan con el fix de Web Locks
 
 ---
 
