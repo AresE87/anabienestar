@@ -7,13 +7,12 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
+  const eventSeqRef = useRef(0);
 
   // Buscar perfil: por ID, luego por email, luego crear
-  const fetchPerfil = useCallback(async (authUser) => {
-    if (!authUser?.id) {
-      setPerfil(null);
-      return null;
-    }
+  // NO modifica estado — retorna data o null
+  const queryPerfil = useCallback(async (authUser) => {
+    if (!authUser?.id) return null;
     try {
       // Capa 1: Buscar por ID
       const { data } = await supabase
@@ -22,10 +21,7 @@ export function AuthProvider({ children }) {
         .eq('id', authUser.id)
         .maybeSingle();
 
-      if (data) {
-        setPerfil(data);
-        return data;
-      }
+      if (data) return data;
 
       // Capa 2: Buscar por email
       if (authUser.email) {
@@ -43,7 +39,6 @@ export function AuthProvider({ children }) {
               .eq('email', authUser.email);
             byEmail.id = authUser.id;
           }
-          setPerfil(byEmail);
           return byEmail;
         }
       }
@@ -65,17 +60,12 @@ export function AuthProvider({ children }) {
           .select()
           .single();
 
-        if (created) {
-          setPerfil(created);
-          return created;
-        }
+        if (created) return created;
       }
 
-      setPerfil(null);
       return null;
     } catch (err) {
       console.error('Error cargando perfil:', err);
-      setPerfil(null);
       return null;
     }
   }, []);
@@ -83,11 +73,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let isMounted = true;
 
-    // Listener de auth: maneja TODOS los cambios de sesion
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
       if (event === 'SIGNED_OUT' || !session) {
+        eventSeqRef.current++;
         setUser(null);
         setPerfil(null);
         setLoading(false);
@@ -95,9 +85,22 @@ export function AuthProvider({ children }) {
       }
 
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+        // Guardar secuencia para detectar si llega otro evento mientras esperamos
+        const mySeq = ++eventSeqRef.current;
+
         setUser(session.user);
-        await fetchPerfil(session.user);
-        if (isMounted) setLoading(false);
+        const p = await queryPerfil(session.user);
+        if (!isMounted) return;
+
+        // Si llego otro evento mientras esperabamos, este resultado es stale — ignorar
+        if (mySeq !== eventSeqRef.current) return;
+
+        if (p) {
+          setPerfil(p);
+        }
+        // Solo ponemos perfil=null si no teniamos uno antes
+        // Esto evita borrar un perfil valido por una race condition
+        setLoading(false);
       }
     });
 
@@ -113,7 +116,7 @@ export function AuthProvider({ children }) {
       }
     });
 
-    // Timeout de seguridad: 10s max esperando
+    // Timeout de seguridad
     const timeout = setTimeout(() => {
       if (isMounted) {
         setLoading(prev => {
@@ -131,7 +134,7 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
       clearTimeout(timeout);
     };
-  }, [fetchPerfil]);
+  }, [queryPerfil]);
 
   const login = useCallback(async (email, password) => {
     setLoading(true);
@@ -149,20 +152,18 @@ export function AuthProvider({ children }) {
     } catch (e) {
       console.warn('Error en signOut:', e);
     }
-    // Limpiar estado y storage DESPUES del signOut
     setUser(null);
     setPerfil(null);
     setLoading(false);
-    // Limpiar storage de Supabase manualmente por si quedo algo
-    try {
-      localStorage.removeItem('anabienestar-auth');
-    } catch (e) {}
+    try { localStorage.removeItem('anabienestar-auth'); } catch (e) {}
   }, []);
 
   const refetchPerfil = useCallback(async () => {
-    if (user) return await fetchPerfil(user);
-    return null;
-  }, [user, fetchPerfil]);
+    if (!user) return null;
+    const p = await queryPerfil(user);
+    if (p) setPerfil(p);
+    return p;
+  }, [user, queryPerfil]);
 
   const value = {
     user,
