@@ -57,21 +57,27 @@ export function AuthProvider({ children }) {
         if (!isMounted) return;
 
         if (!p && event === 'INITIAL_SESSION') {
-          // Sesion restaurada pero sin perfil — puede ser token corrupto/expirado
-          // Intentar verificar que la sesion es valida haciendo getUser()
-          const { data: { user: verifiedUser }, error: verifyErr } = await supabase.auth.getUser();
+          // Sesion restaurada pero sin perfil — probablemente token expirado
+          // Paso 1: Refrescar sesion para obtener token valido
+          const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
           if (!isMounted) return;
 
-          if (verifyErr || !verifiedUser) {
-            // Sesion invalida: limpiar tokens corruptos
-            console.warn('Sesion invalida al restaurar, cerrando sesion...');
+          if (refreshErr || !refreshData?.session) {
+            // No se pudo refrescar: sesion invalida, limpiar
+            console.warn('Sesion expirada, cerrando sesion...', refreshErr?.message);
             await supabase.auth.signOut();
             setUser(null);
             setPerfil(null);
           } else {
-            // Sesion valida pero realmente no tiene perfil
-            setUser(session.user);
-            setPerfil(null);
+            // Token refrescado: reintentar perfil con sesion valida
+            setUser(refreshData.session.user);
+            const retryPerfil = await fetchPerfil(refreshData.session.user);
+            if (!isMounted) return;
+
+            if (!retryPerfil) {
+              // Sesion valida pero realmente no tiene perfil
+              console.warn('Sesion valida pero sin perfil en tabla usuarios');
+            }
           }
         } else if (!p) {
           // Login fresco sin perfil
