@@ -3,64 +3,84 @@ import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
+// Config para raw fetch (bypass del Supabase JS client que se cuelga en queries)
+const SUPABASE_URL = 'https://rnbyxwcrtulxctplerqs.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJuYnl4d2NydHVseGN0cGxlcnFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjQ3MjIsImV4cCI6MjA4NzAwMDcyMn0.gwWyvyqk8431wvejeswrnxND1g_EpMRNVx8JllU7o-g';
+
+// Helper: raw fetch a Supabase REST API con timeout de 5s
+async function rawQuery(path, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': options.prefer || '',
+        ...options.headers,
+      },
+      method: options.method || 'GET',
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!resp.ok) return { data: null, error: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    return { data, error: null };
+  } catch (e) {
+    clearTimeout(timeoutId);
+    return { data: null, error: e.message };
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
   const eventSeqRef = useRef(0);
 
-  // Buscar perfil: por ID, luego por email, luego crear
-  // NO modifica estado — retorna data o null
+  // Buscar perfil usando RAW FETCH (no Supabase JS client)
   const queryPerfil = useCallback(async (authUser) => {
-    if (!authUser?.id) return null;
+    if (!authUser?.id || !authUser?.email) return null;
     try {
       // Capa 1: Buscar por ID
-      const { data } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('id', authUser.id)
-        .maybeSingle();
-
-      if (data) return data;
+      const { data: byIdArr } = await rawQuery(
+        `usuarios?id=eq.${authUser.id}&select=*&limit=1`
+      );
+      if (Array.isArray(byIdArr) && byIdArr.length > 0) {
+        return byIdArr[0];
+      }
 
       // Capa 2: Buscar por email
-      if (authUser.email) {
-        const { data: byEmail } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('email', authUser.email)
-          .maybeSingle();
-
-        if (byEmail) {
-          if (byEmail.id !== authUser.id) {
-            await supabase
-              .from('usuarios')
-              .update({ id: authUser.id })
-              .eq('email', authUser.email);
-            byEmail.id = authUser.id;
-          }
-          return byEmail;
+      const { data: byEmailArr } = await rawQuery(
+        `usuarios?email=eq.${encodeURIComponent(authUser.email)}&select=*&limit=1`
+      );
+      if (Array.isArray(byEmailArr) && byEmailArr.length > 0) {
+        const found = byEmailArr[0];
+        // Actualizar ID si no coincide
+        if (found.id !== authUser.id) {
+          await rawQuery(
+            `usuarios?email=eq.${encodeURIComponent(authUser.email)}`,
+            { method: 'PATCH', body: { id: authUser.id }, prefer: 'return=minimal' }
+          );
+          found.id = authUser.id;
         }
+        return found;
       }
 
       // Capa 3: Crear perfil automaticamente
-      if (authUser.email) {
-        const nombre = authUser.user_metadata?.full_name
-          || authUser.user_metadata?.name
-          || authUser.email.split('@')[0]
-          || 'Usuario';
-        const { data: created } = await supabase
-          .from('usuarios')
-          .upsert({
-            id: authUser.id,
-            nombre,
-            email: authUser.email,
-            rol: 'clienta'
-          }, { onConflict: 'id' })
-          .select()
-          .single();
-
-        if (created) return created;
+      const nombre = authUser.user_metadata?.full_name
+        || authUser.user_metadata?.name
+        || authUser.email.split('@')[0]
+        || 'Usuario';
+      const { data: created } = await rawQuery('usuarios', {
+        method: 'POST',
+        body: { id: authUser.id, nombre, email: authUser.email, rol: 'clienta' },
+        prefer: 'return=representation',
+      });
+      if (Array.isArray(created) && created.length > 0) {
+        return created[0];
       }
 
       return null;
@@ -85,21 +105,13 @@ export function AuthProvider({ children }) {
       }
 
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-        // Guardar secuencia para detectar si llega otro evento mientras esperamos
         const mySeq = ++eventSeqRef.current;
 
         setUser(session.user);
         const p = await queryPerfil(session.user);
-        if (!isMounted) return;
+        if (!isMounted || mySeq !== eventSeqRef.current) return;
 
-        // Si llego otro evento mientras esperabamos, este resultado es stale — ignorar
-        if (mySeq !== eventSeqRef.current) return;
-
-        if (p) {
-          setPerfil(p);
-        }
-        // Solo ponemos perfil=null si no teniamos uno antes
-        // Esto evita borrar un perfil valido por una race condition
+        if (p) setPerfil(p);
         setLoading(false);
       }
     });
@@ -147,11 +159,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.warn('Error en signOut:', e);
-    }
+    try { await supabase.auth.signOut(); } catch (e) {}
     setUser(null);
     setPerfil(null);
     setLoading(false);
