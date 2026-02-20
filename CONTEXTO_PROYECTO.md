@@ -112,6 +112,7 @@ src/
 | v5.5 | Scaffolding: modo oscuro (ThemeContext), multi-idioma (i18n ES/PT), programa grupal (schema + placeholder) |
 | v5.6 | Fix auth: sesion corrupta al reabrir pestana (limpieza automatica de tokens expirados) |
 | v5.7 | **Fix auth definitivo**: desactivar Web Locks API en Supabase JS client (causa raiz de queries colgadas) |
+| v5.7.1 | **Fix RLS usuarios**: reescribir policies con `is_admin()` SECURITY DEFINER (evita recursion) + logging mejorado en fetchPerfil |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -476,10 +477,10 @@ Esto provee una funcion lock no-op que ejecuta el callback inmediatamente sin us
 - **Supabase JS client v2.97**: el lock se introdujo para coordinar refresh entre tabs. Es seguro desactivarlo para apps single-tab o PWAs.
 
 #### Mejoras pendientes para proximas sesiones
-- [ ] **Google OAuth end-to-end**: probar login con Google completo (crear cuenta, redirect, auto-crear perfil via trigger)
-- [ ] **Habilitar RLS en usuarios**: crear politicas SELECT/UPDATE para usuarios + full access para admin
-- [ ] **Service Worker (public/sw.js)**: sigue pendiente para push notifications nativas
-- [ ] **Probar toda la app end-to-end**: Chat, Progreso, Recetas, Material, Citas — verificar que todas las pantallas funcionan con el fix de Web Locks
+- [ ] **Ejecutar RLS v2 en Supabase**: `supabase_rls_usuarios.sql` ya reescrito con `is_admin()` SECURITY DEFINER — ejecutar en SQL Editor
+- [ ] **Google OAuth**: regenerar Client Secret en Google Cloud Console, actualizar en Supabase, y probar
+- [ ] **Service Worker (public/sw.js)**: codigo completo, falta VAPID key (`npx web-push generate-vapid-keys`)
+- [ ] **Probar toda la app end-to-end**: Chat, Progreso, Recetas, Material, Citas — verificar que todas las pantallas funcionan
 
 ### Sesion 11 — 2026-02-20 (post-presentacion: planificacion de 4 tareas)
 
@@ -527,11 +528,77 @@ Esto provee una funcion lock no-op que ejecuta el callback inmediatamente sin us
 - **IMPORTANTE**: Despues de ejecutar el SQL, probar login/logout para verificar que no se rompio nada
 
 #### Pasos manuales para Edgardo (proxima sesion)
-1. Ir a Supabase SQL Editor → ejecutar `supabase_rls_usuarios.sql` → verificar Success
+1. ~~Ir a Supabase SQL Editor → ejecutar `supabase_rls_usuarios.sql` → verificar Success~~ → EJECUTADO en sesion 12, CAUSO REGRESION
 2. Probar login/logout admin y clienta (verificar que RLS no rompio nada)
 3. Probar boton "Continuar con Google" en la app
 4. Navegar TODAS las pantallas como clienta y como admin, reportar errores
 5. (Opcional) Generar VAPID keys: `npx web-push generate-vapid-keys` → agregar al `.env`
+
+### Sesion 12 — 2026-02-20 (fix RLS regresion + Google OAuth debugging)
+
+**Contexto**: Edgardo ejecuto el `supabase_rls_usuarios.sql` de la sesion 11 y todo se rompio. Tambien probo Google OAuth que sigue fallando.
+
+#### Problema 1: RLS en usuarios rompio login (REGRESION)
+**Sintoma**: Despues de ejecutar el SQL de RLS, AMBOS usuarios (admin y clienta) quedan atrapados en "Cargando perfil..." en modo normal E incognito. Google OAuth tampoco funciona (vuelve al login).
+
+**Causa raiz**: La policy de admin usaba una subconsulta RECURSIVA:
+```sql
+EXISTS (SELECT 1 FROM usuarios u WHERE u.id = auth.uid() AND u.rol = 'admin')
+```
+Esta subconsulta a la MISMA tabla `usuarios` tambien esta sujeta a RLS → evaluacion circular. PostgreSQL no puede resolver la policy porque necesita consultar la tabla para evaluar la policy que protege esa misma tabla.
+
+**Fix temporal aplicado**: Edgardo ejecuto en Supabase:
+```sql
+ALTER TABLE usuarios DISABLE ROW LEVEL SECURITY;
+```
+Login con email volvio a funcionar. Google OAuth sigue fallando (problema separado).
+
+**Fix definitivo preparado** (`supabase_rls_usuarios.sql` v2):
+1. Crear funcion `public.is_admin()` con `SECURITY DEFINER` — se ejecuta con permisos del owner (postgres), bypasea RLS
+2. Las policies de admin usan `is_admin()` en vez de subconsulta directa
+3. El SQL incluye: deshabilitar RLS → borrar policies viejas → crear is_admin() → crear policies nuevas → habilitar RLS
+4. **PENDIENTE**: Edgardo debe ejecutar este nuevo SQL en Supabase SQL Editor
+
+#### Problema 2: Google OAuth — "Unable to exchange external code"
+**Sintoma**: Al hacer login con Google, el flujo se completa en Google (token en cel) pero al volver a la app, queda en la pagina de login. Error: "Unable to exchange external code".
+
+**Causa probable**: Client Secret incorrecto o desactualizado en Supabase.
+
+**Fix pendiente**:
+1. Google Cloud Console → APIs & Services → Credentials → OAuth Client → RESET SECRET
+2. Copiar nuevo secret
+3. Supabase → Authentication → Providers → Google → pegar nuevo secret → guardar
+4. Probar de nuevo
+
+**Tambien verificar**:
+- Authorized JavaScript origins: `https://anabienestar.vercel.app`
+- Authorized redirect URIs: `https://rnbyxwcrtulxctplerqs.supabase.co/auth/v1/callback`
+
+#### Mejoras de codigo realizadas
+1. **`supabase_rls_usuarios.sql`** — reescrito completamente con `is_admin()` SECURITY DEFINER
+2. **`src/context/AuthContext.js`** — mejorado logging en fetchPerfil:
+   - Cada capa (by ID, by email, create) ahora loggea errores con `console.warn`
+   - Captura errores OAuth de la URL y los loggea antes de limpiar la URL
+   - Esto permite ver en consola del navegador (F12) exactamente donde falla
+3. **Nuevo logging OAuth**: errores de OAuth en la URL se capturan y loggean con `console.error('OAuth error:', ...)` antes de limpiar la URL
+
+#### Commits de esta sesion
+- `62e3fd7` — fix: rewrite RLS usuarios with is_admin() SECURITY DEFINER + improve fetchPerfil logging
+- `39c7550` — fix: log OAuth errors before cleaning URL for better debugging
+
+#### Estado actual de la app
+- ✅ Login email/password funciona (admin y clienta) — RLS deshabilitado temporalmente
+- ❌ Google OAuth NO funciona — "Unable to exchange external code"
+- ❌ RLS en usuarios DESHABILITADO temporalmente (pendiente ejecutar SQL v2)
+- ✅ Todas las demas funcionalidades operativas
+
+#### Pendientes para proxima sesion (LEER ESTO PRIMERO)
+1. **Ejecutar `supabase_rls_usuarios.sql` (v2)** en Supabase SQL Editor — este es el archivo actualizado con `is_admin()` SECURITY DEFINER. Despues probar login admin y clienta.
+2. **Regenerar Google Client Secret** en Google Cloud Console y actualizar en Supabase → Authentication → Providers → Google
+3. **Probar Google OAuth** despues de actualizar el secret
+4. **Probar app end-to-end**: todas las pantallas como clienta y admin
+5. **VAPID keys** para push notifications: `npx web-push generate-vapid-keys` → `.env`
+6. **(Opcional) Actualizar RLS de otras tablas** para usar `is_admin()` en vez de subconsultas directas (conversaciones, mensajes, material_usuarios) — no urgente, funcionan porque la subconsulta es cross-table
 
 ---
 
