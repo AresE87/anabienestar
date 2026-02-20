@@ -84,8 +84,13 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let isMounted = true;
 
-    // Limpiar URL de errores OAuth
-    if (window.location.search.includes('error=') || window.location.hash.includes('error=')) {
+    // Capturar y loggear errores OAuth de la URL antes de limpiarla
+    const urlParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+    const oauthError = urlParams.get('error') || hashParams.get('error');
+    const oauthDesc = urlParams.get('error_description') || hashParams.get('error_description');
+    if (oauthError) {
+      console.error('OAuth error:', oauthError, oauthDesc || '');
       window.history.replaceState({}, '', window.location.pathname);
     }
 
