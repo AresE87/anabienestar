@@ -434,16 +434,29 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Authorized redirect URIs: `https://rnbyxwcrtulxctplerqs.supabase.co/auth/v1/callback`
 3. **Estado**: credenciales configuradas, falta probar si el exchange funciona despues de la propagacion de Google (puede tardar 5 min a unas horas)
 
+#### Parte 4: Descubrimiento final — Supabase JS client roto
+**Prueba definitiva**: el diagnostico mostro que TANTO en navegacion normal como en incognito:
+- ✅ Raw fetch funciona perfecto (status 200, devuelve datos, IDs coinciden)
+- ❌ `supabase.from('usuarios').select()` se cuelga SIEMPRE
+- ❌ `refetchPerfil` (que usa el JS client) tambien falla
+
+**Conclusion**: El problema NUNCA fue race condition ni tokens expirados. El Supabase JS client tiene un bug donde las queries se cuelgan indefinidamente. Solo auth funciona (login/logout/getSession), pero las queries a tablas no.
+
+**Fix definitivo**: `queryPerfil` ahora usa `fetch()` directo al REST API de Supabase (mismo endpoint que el JS client usaria). Con timeout de 5s. Las 3 capas de fallback (ID → email → crear) siguen funcionando pero via raw fetch.
+
+**Nota**: el resto de la app (Chat, Admin, Home, etc.) sigue usando el Supabase JS client para queries. Si esas pantallas tambien fallan, habra que investigar si es un problema de version de @supabase/supabase-js o de configuracion. Posible causa: la opcion `lock` del auth client que bloquea requests mientras refresca token.
+
 #### Commits de esta sesion
 - `cf46b84` — fix: auth sesion expirada (refreshSession + retry)
 - `44732c7` — fix: solucion definitiva auth (3 capas fallback)
 - `21480cf` — debug: pantalla diagnostico con raw fetch
 - `8b79217` — fix: diagnostico con raw fetch + auto-fix IDs
 - `db6f66f` — fix: race condition INITIAL_SESSION vs TOKEN_REFRESHED
+- `a6d3dbc` — fix: reemplazar queryPerfil por raw fetch (bypass JS client)
 
 #### Sospechas y cosas a investigar
-- **¿Por que el Supabase JS client se cuelga?** El raw fetch funciona, pero `supabase.from('usuarios').select()` se cuelga en ciertos casos. Puede ser un bug del cliente JS cuando el token esta en proceso de refresh. Investigar si hay un issue abierto en supabase-js.
-- **¿El fix de sequence counter resuelve el 100% de los casos?** Falta confirmar. Si sigue fallando, alternativa: reemplazar `queryPerfil` por raw fetch directo al REST API (bypass total del Supabase JS client para la query de perfil).
+- **¿Por que el Supabase JS client se cuelga?** Raw fetch funciona pero `supabase.from().select()` no. Posibles causas: (1) auth lock que bloquea requests durante token refresh, (2) bug en la version de @supabase/supabase-js, (3) conflicto con la config de persistSession/storageKey. Revisar version en package.json y comparar con changelogs.
+- **¿Afecta a otras pantallas?** Solo se confirmo en queryPerfil. Si Chat, Admin u otras pantallas tambien se cuelgan, confirma que es un problema global del JS client y habra que hacer upgrade o workaround.
 - **RLS en tabla usuarios**: esta DESHABILITADO. Para produccion se deberia habilitar con politica `SELECT` para que cada usuario pueda leer su propia fila y admin pueda leer todas.
 
 #### Mejoras pendientes para proximas sesiones
