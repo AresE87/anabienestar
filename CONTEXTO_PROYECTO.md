@@ -29,22 +29,22 @@ src/
     AuthContext.js           - Auth global (login, logout, perfil, roles)
     AppContext.js            - Estado app (checklist, mood, peso, racha)
   screens/
-    Login.js                - Pantalla de login
+    Login.js                - Login email/password + Google OAuth [v4.4]
     Home.js                 - Dashboard clienta (checklist, mood, frase, receta)
     Progreso.js             - Graficos de peso (recharts)
-    Chat.js                 - Chat con Ana (texto, fotos, videos) [v4.0]
+    Chat.js                 - Chat con Ana (texto, fotos, videos, typing indicator) [v4.4.1]
     Recetas.js              - Catalogo de recetas (con fallback local)
-    Material.js             - eBooks y videos (existe pero NO esta en BottomNav)
+    Material.js             - eBooks y videos (filtra por asignacion de usuario)
     Citas.js                - Agenda y notas de sesion
     Admin.js                - Dashboard admin completo (10 pestanas)
   components/
-    BottomNav.js            - Nav inferior: Inicio, Progreso, Chat, Recetas, Citas
+    BottomNav.js            - Nav inferior 6 items: Inicio, Progreso, Chat, Material, Recetas, Citas
     AdminClientas.js        - CRUD clientas
     AdminFichas.js          - CRUD fichas de programas
     AdminMaterial.js        - CRUD eBooks/PDFs
     AdminVideos.js          - CRUD videos/audios
     AdminRecetas.js         - CRUD recetas
-    AdminMensajes.js        - Panel de mensajes/chat para admin [v4.0]
+    AdminMensajes.js        - Panel chat admin: sonido, typing, respuestas rapidas [v4.4.1]
   utils/
     pushNotifications.js    - Push notifications (VAPID, SW)
     seedData.js             - Insertar datos de ejemplo
@@ -97,6 +97,7 @@ src/
 | v4.3 | Sistema de asignacion de material a clientas individuales |
 | v4.3.1 | Fix material admin: SQL migracion columnas + mejor UX carga guias |
 | v4.4 | Login OAuth (Google/Apple) + BottomNav 6 pestanas + auto-crear perfil |
+| v4.4.1 | Sonido notificacion admin + typing indicator bidireccional + respuestas rapidas + quitar Apple |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
