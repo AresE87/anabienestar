@@ -9,5 +9,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storageKey: 'anabienestar-auth',
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    flowType: 'implicit',
+    // Desactivar Web Locks API (se cuelga en ciertas redes/navegadores)
+    lock: async (_name, _acquireTimeout, fn) => fn(),
   },
 })
