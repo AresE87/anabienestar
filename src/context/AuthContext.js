@@ -15,17 +15,63 @@ export function AuthProvider({ children }) {
       return null;
     }
     try {
+      // Capa 1: Buscar por ID (caso normal)
       const { data, error } = await supabase
         .from('usuarios')
         .select('*')
         .eq('id', authUser.id)
         .maybeSingle();
 
-      if (error) console.error('Error query perfil (puede ser RLS):', error);
       if (!error && data) {
         setPerfil(data);
         return data;
       }
+
+      // Capa 2: Buscar por email (por si el ID de auth cambio)
+      if (authUser.email) {
+        const { data: byEmail } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('email', authUser.email)
+          .maybeSingle();
+
+        if (byEmail) {
+          // Encontrado por email — actualizar el ID para que coincida con auth
+          if (byEmail.id !== authUser.id) {
+            await supabase
+              .from('usuarios')
+              .update({ id: authUser.id })
+              .eq('email', authUser.email);
+            byEmail.id = authUser.id;
+          }
+          setPerfil(byEmail);
+          return byEmail;
+        }
+      }
+
+      // Capa 3: No existe — crear perfil automaticamente
+      if (authUser.email) {
+        const nombre = authUser.user_metadata?.full_name
+          || authUser.user_metadata?.name
+          || authUser.email.split('@')[0]
+          || 'Usuario';
+        const { data: created } = await supabase
+          .from('usuarios')
+          .upsert({
+            id: authUser.id,
+            nombre,
+            email: authUser.email,
+            rol: 'clienta'
+          }, { onConflict: 'id' })
+          .select()
+          .single();
+
+        if (created) {
+          setPerfil(created);
+          return created;
+        }
+      }
+
       setPerfil(null);
       return null;
     } catch (err) {
@@ -53,36 +99,27 @@ export function AuthProvider({ children }) {
       // Cargar perfil en eventos relevantes
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
         setUser(session.user);
-        const p = await fetchPerfil(session.user);
+        let p = await fetchPerfil(session.user);
         if (!isMounted) return;
 
+        // Si no encontro perfil en INITIAL_SESSION, refrescar token y reintentar
         if (!p && event === 'INITIAL_SESSION') {
-          // Sesion restaurada pero sin perfil — probablemente token expirado
-          // Paso 1: Refrescar sesion para obtener token valido
-          const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
+          const { data: refreshData } = await supabase.auth.refreshSession();
           if (!isMounted) return;
 
-          if (refreshErr || !refreshData?.session) {
-            // No se pudo refrescar: sesion invalida, limpiar
-            console.warn('Sesion expirada, cerrando sesion...', refreshErr?.message);
+          if (refreshData?.session) {
+            setUser(refreshData.session.user);
+            p = await fetchPerfil(refreshData.session.user);
+            if (!isMounted) return;
+          }
+
+          // Si aun no hay perfil despues de refrescar, cerrar sesion limpia
+          if (!p) {
+            console.warn('No se pudo obtener perfil, cerrando sesion...');
             await supabase.auth.signOut();
             setUser(null);
             setPerfil(null);
-          } else {
-            // Token refrescado: reintentar perfil con sesion valida
-            setUser(refreshData.session.user);
-            const retryPerfil = await fetchPerfil(refreshData.session.user);
-            if (!isMounted) return;
-
-            if (!retryPerfil) {
-              // Sesion valida pero realmente no tiene perfil
-              console.warn('Sesion valida pero sin perfil en tabla usuarios');
-            }
           }
-        } else if (!p) {
-          // Login fresco sin perfil
-          setUser(session.user);
-          setPerfil(null);
         }
       }
 

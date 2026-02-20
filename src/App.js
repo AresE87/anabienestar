@@ -14,7 +14,7 @@ import Login from './screens/Login';
 import BottomNav from './components/BottomNav';
 
 function AuthGate({ children }) {
-  const { user, perfil, loading } = useAuth();
+  const { user, perfil, loading, logout } = useAuth();
 
   if (loading) {
     return (
@@ -49,8 +49,45 @@ function AuthGate({ children }) {
         fontFamily: "'Jost', sans-serif",
         color: '#3d5c41',
         textAlign: 'center',
+        gap: 16,
       }}>
         <p>Tu cuenta no tiene perfil asignado. Contactá a Ana Karina.</p>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '10px 20px',
+              background: '#7a9e7e',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              fontFamily: "'Jost', sans-serif",
+              fontSize: '0.95rem',
+              cursor: 'pointer',
+            }}
+          >
+            🔄 Reintentar
+          </button>
+          <button
+            onClick={async () => {
+              localStorage.clear();
+              await logout();
+              window.location.reload();
+            }}
+            style={{
+              padding: '10px 20px',
+              background: '#c4762a',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              fontFamily: "'Jost', sans-serif",
+              fontSize: '0.95rem',
+              cursor: 'pointer',
+            }}
+          >
+            🚪 Cerrar sesión
+          </button>
+        </div>
       </div>
     );
   }
