@@ -12,42 +12,52 @@ export function AuthProvider({ children }) {
   const fetchPerfil = useCallback(async (authUser) => {
     if (!authUser?.id) return null;
     try {
-      // Buscar por ID
+      // Capa 1: Buscar por ID
       const { data, error } = await supabase
         .from('usuarios')
         .select('*')
         .eq('id', authUser.id)
         .maybeSingle();
 
+      if (error) {
+        console.warn('fetchPerfil (by ID) error:', error.code, error.message, error.details || '');
+      }
       if (!error && data) return data;
 
-      // Fallback: buscar por email
+      // Capa 2: Buscar por email
       if (authUser.email) {
-        const { data: byEmail } = await supabase
+        const { data: byEmail, error: errEmail } = await supabase
           .from('usuarios')
           .select('*')
           .eq('email', authUser.email)
           .maybeSingle();
 
+        if (errEmail) {
+          console.warn('fetchPerfil (by email) error:', errEmail.code, errEmail.message);
+        }
+
         if (byEmail) {
           if (byEmail.id !== authUser.id) {
-            await supabase
+            const { error: errUpdate } = await supabase
               .from('usuarios')
               .update({ id: authUser.id })
               .eq('email', authUser.email);
+            if (errUpdate) {
+              console.warn('fetchPerfil (update ID) error:', errUpdate.code, errUpdate.message);
+            }
             byEmail.id = authUser.id;
           }
           return byEmail;
         }
       }
 
-      // Ultimo recurso: crear perfil
+      // Capa 3: Crear perfil (usuarios nuevos, ej: OAuth)
       if (authUser.email) {
         const nombre = authUser.user_metadata?.full_name
           || authUser.user_metadata?.name
           || authUser.email.split('@')[0]
           || 'Usuario';
-        const { data: created } = await supabase
+        const { data: created, error: errCreate } = await supabase
           .from('usuarios')
           .upsert({
             id: authUser.id,
@@ -57,9 +67,13 @@ export function AuthProvider({ children }) {
           }, { onConflict: 'id' })
           .select()
           .single();
+        if (errCreate) {
+          console.warn('fetchPerfil (create) error:', errCreate.code, errCreate.message);
+        }
         if (created) return created;
       }
 
+      console.warn('fetchPerfil: no se pudo obtener ni crear perfil para', authUser.id);
       return null;
     } catch (err) {
       console.error('Error cargando perfil:', err);
