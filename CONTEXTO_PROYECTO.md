@@ -481,6 +481,58 @@ Esto provee una funcion lock no-op que ejecuta el callback inmediatamente sin us
 - [ ] **Service Worker (public/sw.js)**: sigue pendiente para push notifications nativas
 - [ ] **Probar toda la app end-to-end**: Chat, Progreso, Recetas, Material, Citas — verificar que todas las pantallas funcionan con el fix de Web Locks
 
+### Sesion 11 — 2026-02-20 (post-presentacion: planificacion de 4 tareas)
+
+**Contexto**: La presentacion salio bien. Se planificaron 4 tareas para mejorar la app.
+
+#### Estado de las 4 tareas planificadas
+
+**Tarea 1: Google OAuth end-to-end**
+- Estado: PENDIENTE DE PRUEBA por el usuario
+- Codigo ya implementado (Login.js tiene `handleOAuth('google')`)
+- Google Cloud Console ya configurado (Client ID, Secret, redirect URIs)
+- Supabase Google provider habilitado
+- Trigger `handle_new_user` auto-crea perfil en `usuarios`
+- **Lo que falta**: Que Edgardo pruebe el boton "Continuar con Google" en la app desplegada
+- Si da error `Unable to exchange external code` de nuevo, regenerar Client Secret en Google Cloud y actualizar en Supabase
+
+**Tarea 2: Probar app end-to-end**
+- Estado: PENDIENTE DE PRUEBA por el usuario
+- Pantallas a verificar: Home, Progreso, Chat, Material, Recetas, Citas (como clienta) + todas las pestanas de Admin
+- Con el fix de Web Locks, todas las queries de Supabase deberian funcionar
+- **Lo que falta**: Que Edgardo navegue cada pantalla y reporte errores
+
+**Tarea 3: Service Worker y Push Notifications**
+- Estado: ✅ CODIGO COMPLETO — falta VAPID key
+- `public/sw.js` ya existe con cache offline + push handler + notification click
+- Se registra automaticamente en `src/index.js`
+- `subscribeToPush()` se llama en Admin.js y Home.js
+- **Lo que falta**: Generar VAPID keys y configurar `.env`:
+  ```
+  npx web-push generate-vapid-keys
+  ```
+  Poner la public key en `.env` como `REACT_APP_VAPID_PUBLIC_KEY=...`
+  Guardar la private key como secreto en Supabase (para edge functions)
+
+**Tarea 4: Habilitar RLS en tabla usuarios**
+- Estado: ✅ SQL CREADO — falta ejecutar
+- Archivo: `supabase_rls_usuarios.sql` (en la raiz del repo)
+- **Lo que falta**: Que Edgardo ejecute el SQL en Supabase SQL Editor
+- Politicas creadas:
+  - Admin acceso completo (FOR ALL)
+  - Usuario lee su propio perfil (FOR SELECT)
+  - Usuario actualiza su propio perfil (FOR UPDATE)
+  - Insertar perfil propio (FOR INSERT)
+  - ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY
+- **IMPORTANTE**: Despues de ejecutar el SQL, probar login/logout para verificar que no se rompio nada
+
+#### Pasos manuales para Edgardo (proxima sesion)
+1. Ir a Supabase SQL Editor → ejecutar `supabase_rls_usuarios.sql` → verificar Success
+2. Probar login/logout admin y clienta (verificar que RLS no rompio nada)
+3. Probar boton "Continuar con Google" en la app
+4. Navegar TODAS las pantallas como clienta y como admin, reportar errores
+5. (Opcional) Generar VAPID keys: `npx web-push generate-vapid-keys` → agregar al `.env`
+
 ---
 
 ## PREFERENCIAS DEL USUARIO
