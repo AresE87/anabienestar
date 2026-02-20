@@ -7,27 +7,27 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
-  const initializedRef = useRef(false);
 
+  // Buscar perfil: por ID, luego por email, luego crear
   const fetchPerfil = useCallback(async (authUser) => {
     if (!authUser?.id) {
       setPerfil(null);
       return null;
     }
     try {
-      // Capa 1: Buscar por ID (caso normal)
-      const { data, error } = await supabase
+      // Capa 1: Buscar por ID
+      const { data } = await supabase
         .from('usuarios')
         .select('*')
         .eq('id', authUser.id)
         .maybeSingle();
 
-      if (!error && data) {
+      if (data) {
         setPerfil(data);
         return data;
       }
 
-      // Capa 2: Buscar por email (por si el ID de auth cambio)
+      // Capa 2: Buscar por email
       if (authUser.email) {
         const { data: byEmail } = await supabase
           .from('usuarios')
@@ -36,7 +36,6 @@ export function AuthProvider({ children }) {
           .maybeSingle();
 
         if (byEmail) {
-          // Encontrado por email — actualizar el ID para que coincida con auth
           if (byEmail.id !== authUser.id) {
             await supabase
               .from('usuarios')
@@ -49,7 +48,7 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Capa 3: No existe — crear perfil automaticamente
+      // Capa 3: Crear perfil automaticamente
       if (authUser.email) {
         const nombre = authUser.user_metadata?.full_name
           || authUser.user_metadata?.name
@@ -81,10 +80,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // Unico listener: onAuthStateChange maneja TODO (login, logout, refresh, sesion inicial)
   useEffect(() => {
     let isMounted = true;
 
+    // Listener de auth: maneja TODOS los cambios de sesion
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
@@ -92,80 +91,40 @@ export function AuthProvider({ children }) {
         setUser(null);
         setPerfil(null);
         setLoading(false);
-        initializedRef.current = true;
         return;
       }
 
-      // Cargar perfil en eventos relevantes
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
         setUser(session.user);
-        let p = await fetchPerfil(session.user);
-        if (!isMounted) return;
-
-        // Si no encontro perfil en INITIAL_SESSION, refrescar token y reintentar
-        if (!p && event === 'INITIAL_SESSION') {
-          const { data: refreshData } = await supabase.auth.refreshSession();
-          if (!isMounted) return;
-
-          if (refreshData?.session) {
-            setUser(refreshData.session.user);
-            p = await fetchPerfil(refreshData.session.user);
-            if (!isMounted) return;
-          }
-
-          // Si aun no hay perfil despues de refrescar, cerrar sesion limpia
-          if (!p) {
-            console.warn('No se pudo obtener perfil, cerrando sesion...');
-            await supabase.auth.signOut();
-            setUser(null);
-            setPerfil(null);
-          }
-        }
-      }
-
-      if (isMounted) {
-        setLoading(false);
-        initializedRef.current = true;
+        await fetchPerfil(session.user);
+        if (isMounted) setLoading(false);
       }
     });
 
-    // Disparar la carga inicial — getSession emite INITIAL_SESSION via onAuthStateChange
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    // Disparar carga inicial
+    supabase.auth.getSession().then(({ error }) => {
       if (!isMounted) return;
       if (error) {
-        // Error al restaurar sesion (token expirado, 400, etc.)
         console.warn('Error restaurando sesion:', error.message);
         supabase.auth.signOut().catch(() => {});
         setUser(null);
         setPerfil(null);
         setLoading(false);
-        initializedRef.current = true;
-        return;
-      }
-      // Si no hay sesion, onAuthStateChange podria no disparar, asi que resolvemos aqui
-      if (!session && !initializedRef.current) {
-        initializedRef.current = true;
-        setUser(null);
-        setPerfil(null);
-        setLoading(false);
       }
     });
 
-    // Timeout de seguridad: si loading sigue en true despues de 8s, limpiar y mostrar login
+    // Timeout de seguridad: 10s max esperando
     const timeout = setTimeout(() => {
-      if (!isMounted) return;
-      setLoading((prev) => {
-        if (prev) {
-          console.warn('Auth timeout: forzando fin de carga, limpiando sesion...');
-          // Si llego al timeout es que algo fallo — limpiar para no quedar en estado roto
-          supabase.auth.signOut().catch(() => {});
-          setUser(null);
-          setPerfil(null);
-          return false;
-        }
-        return prev;
-      });
-    }, 8000);
+      if (isMounted) {
+        setLoading(prev => {
+          if (prev) {
+            console.warn('Auth timeout: forzando fin de carga');
+            return false;
+          }
+          return prev;
+        });
+      }
+    }, 10000);
 
     return () => {
       isMounted = false;
@@ -181,17 +140,29 @@ export function AuthProvider({ children }) {
       setLoading(false);
       throw error;
     }
-    // onAuthStateChange se encarga del resto (perfil, loading=false)
     return data;
   }, []);
 
   const logout = useCallback(async () => {
-    setLoading(true);
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.warn('Error en signOut:', e);
+    }
+    // Limpiar estado y storage DESPUES del signOut
     setUser(null);
     setPerfil(null);
     setLoading(false);
+    // Limpiar storage de Supabase manualmente por si quedo algo
+    try {
+      localStorage.removeItem('anabienestar-auth');
+    } catch (e) {}
   }, []);
+
+  const refetchPerfil = useCallback(async () => {
+    if (user) return await fetchPerfil(user);
+    return null;
+  }, [user, fetchPerfil]);
 
   const value = {
     user,
@@ -199,6 +170,7 @@ export function AuthProvider({ children }) {
     loading,
     login,
     logout,
+    refetchPerfil,
     isAdmin: perfil?.rol === 'admin',
     isClienta: perfil?.rol === 'clienta',
   };
