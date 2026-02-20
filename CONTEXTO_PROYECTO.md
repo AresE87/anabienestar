@@ -110,6 +110,7 @@ src/
 | v5.3 | Busqueda en mensajes (admin + clienta) |
 | v5.4 | Estadisticas de engagement (Recharts) + exportar ficha a PDF |
 | v5.5 | Scaffolding: modo oscuro (ThemeContext), multi-idioma (i18n ES/PT), programa grupal (schema + placeholder) |
+| v5.6 | Fix auth: sesion corrupta al reabrir pestana (limpieza automatica de tokens expirados) |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -329,7 +330,7 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 5. **Animaciones CSS**:
    - Agregadas `@keyframes pulse` y `@keyframes fadeIn` en index.css
 
-### Sesion 9 — 2026-02-20 (v5.0→v5.5: todos los pendientes)
+### Sesion 9 — 2026-02-20 (v5.0→v5.6: todos los pendientes + fix auth)
 1. **Push notifications bidireccionales (v5.0)**:
    - Chat.js: `notifyAdmin()` fire-and-forget tras enviar texto/foto/video
    - AdminMensajes.js: push a clienta tras responder
@@ -361,7 +362,20 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Nuevo `src/components/AdminGrupos.js`: card "Proximamente" con preview
    - SQL: tablas grupos/miembros/metas/progreso en `supabase_v5_migration.sql`
    - Admin.js: nuevas pestanas Estadisticas (📈) y Grupos (👥)
-10. **Compilacion exitosa** con `npx react-scripts build`
+10. **Fix auth sesion corrupta (v5.6)**:
+    - **Bug**: Al cerrar pestana y reabrir, Supabase intentaba restaurar sesion con token expirado (error 400). `onAuthStateChange` no emitia SIGNED_OUT limpiamente, el timeout de 8s saltaba, `user` quedaba con datos stale pero `perfil` null → mostraba "Tu cuenta no tiene perfil asignado" en vez del Login. Solo funcionaba en modo incognito (sin localStorage viejo).
+    - **Fix en AuthContext.js**: 3 capas de proteccion:
+      1. `getSession()` ahora atrapa errores → si falla (400, token expirado) hace `signOut()` inmediato para limpiar localStorage
+      2. En `INITIAL_SESSION` sin perfil: verifica sesion con `getUser()` → si token invalido → `signOut()` limpio
+      3. Timeout mejorado: si 8s sin resolver → `signOut()` + limpiar user/perfil → muestra Login
+    - Flag `isMounted` para evitar updates en componentes desmontados
+11. **Compilacion exitosa** con `npx react-scripts build`
+
+**Errores conocidos encontrados durante implementacion:**
+- `"Can't resolve 'react'"` — worktree sin node_modules resuelto. Fix: usar `NODE_ENV=production`
+- `"'selected' is not defined"` en AdminClientas.js — variable incorrecta en codigo PDF. Fix: reemplazar `selected?.` por `selectedClienta?.`
+- `"'NOTIFICATION_SOUND' is assigned but never used"` — constante obsoleta en AdminMensajes.js. Fix: eliminada
+- **Auth sesion corrupta**: token refresh falla al reabrir pestana → pantalla "sin perfil". Fix: v5.6 (limpieza automatica)
 
 ---
 
