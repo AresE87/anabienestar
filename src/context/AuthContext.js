@@ -3,14 +3,13 @@ import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
-// Config para raw fetch (bypass del Supabase JS client que se cuelga en queries)
+// Config para raw fetch (bypass del Supabase JS client)
 const SUPABASE_URL = 'https://rnbyxwcrtulxctplerqs.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJuYnl4d2NydHVseGN0cGxlcnFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjQ3MjIsImV4cCI6MjA4NzAwMDcyMn0.gwWyvyqk8431wvejeswrnxND1g_EpMRNVx8JllU7o-g';
 
-// Helper: raw fetch a Supabase REST API con timeout de 5s
 async function rawQuery(path, options = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
     const resp = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
       headers: {
@@ -18,7 +17,6 @@ async function rawQuery(path, options = {}) {
         'Authorization': `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
         'Prefer': options.prefer || '',
-        ...options.headers,
       },
       method: options.method || 'GET',
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -34,110 +32,82 @@ async function rawQuery(path, options = {}) {
   }
 }
 
+// Buscar perfil: por ID, luego por email, luego crear
+async function queryPerfil(authUser) {
+  if (!authUser?.id || !authUser?.email) return null;
+  try {
+    // Capa 1: Buscar por ID
+    const { data: byIdArr } = await rawQuery(
+      `usuarios?id=eq.${authUser.id}&select=*&limit=1`
+    );
+    if (Array.isArray(byIdArr) && byIdArr.length > 0) return byIdArr[0];
+
+    // Capa 2: Buscar por email
+    const { data: byEmailArr } = await rawQuery(
+      `usuarios?email=eq.${encodeURIComponent(authUser.email)}&select=*&limit=1`
+    );
+    if (Array.isArray(byEmailArr) && byEmailArr.length > 0) {
+      const found = byEmailArr[0];
+      if (found.id !== authUser.id) {
+        await rawQuery(
+          `usuarios?email=eq.${encodeURIComponent(authUser.email)}`,
+          { method: 'PATCH', body: { id: authUser.id }, prefer: 'return=minimal' }
+        );
+        found.id = authUser.id;
+      }
+      return found;
+    }
+
+    // Capa 3: Crear perfil
+    const nombre = authUser.user_metadata?.full_name
+      || authUser.user_metadata?.name
+      || authUser.email.split('@')[0]
+      || 'Usuario';
+    const { data: created } = await rawQuery('usuarios', {
+      method: 'POST',
+      body: { id: authUser.id, nombre, email: authUser.email, rol: 'clienta' },
+      prefer: 'return=representation',
+    });
+    if (Array.isArray(created) && created.length > 0) return created[0];
+
+    return null;
+  } catch (err) {
+    console.error('Error cargando perfil:', err);
+    return null;
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
-  const eventSeqRef = useRef(0);
+  const perfilLoadedForRef = useRef(null); // Tracks which user ID we loaded perfil for
 
-  // Buscar perfil usando RAW FETCH (no Supabase JS client)
-  const queryPerfil = useCallback(async (authUser) => {
-    if (!authUser?.id || !authUser?.email) return null;
-    try {
-      // Capa 1: Buscar por ID
-      const { data: byIdArr } = await rawQuery(
-        `usuarios?id=eq.${authUser.id}&select=*&limit=1`
-      );
-      if (Array.isArray(byIdArr) && byIdArr.length > 0) {
-        return byIdArr[0];
-      }
-
-      // Capa 2: Buscar por email
-      const { data: byEmailArr } = await rawQuery(
-        `usuarios?email=eq.${encodeURIComponent(authUser.email)}&select=*&limit=1`
-      );
-      if (Array.isArray(byEmailArr) && byEmailArr.length > 0) {
-        const found = byEmailArr[0];
-        // Actualizar ID si no coincide
-        if (found.id !== authUser.id) {
-          await rawQuery(
-            `usuarios?email=eq.${encodeURIComponent(authUser.email)}`,
-            { method: 'PATCH', body: { id: authUser.id }, prefer: 'return=minimal' }
-          );
-          found.id = authUser.id;
-        }
-        return found;
-      }
-
-      // Capa 3: Crear perfil automaticamente
-      const nombre = authUser.user_metadata?.full_name
-        || authUser.user_metadata?.name
-        || authUser.email.split('@')[0]
-        || 'Usuario';
-      const { data: created } = await rawQuery('usuarios', {
-        method: 'POST',
-        body: { id: authUser.id, nombre, email: authUser.email, rol: 'clienta' },
-        prefer: 'return=representation',
-      });
-      if (Array.isArray(created) && created.length > 0) {
-        return created[0];
-      }
-
-      return null;
-    } catch (err) {
-      console.error('Error cargando perfil:', err);
-      return null;
-    }
-  }, []);
-
+  // === EFECTO 1: Listener de auth (SOLO maneja user + loading) ===
   useEffect(() => {
     let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
 
       if (event === 'SIGNED_OUT' || !session) {
-        eventSeqRef.current++;
         setUser(null);
         setPerfil(null);
+        perfilLoadedForRef.current = null;
         setLoading(false);
         return;
       }
 
-      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-        const mySeq = ++eventSeqRef.current;
-
-        setUser(session.user);
-        const p = await queryPerfil(session.user);
-        if (!isMounted || mySeq !== eventSeqRef.current) return;
-
-        if (p) setPerfil(p);
-        setLoading(false);
-      }
-    });
-
-    // Disparar carga inicial
-    supabase.auth.getSession().then(({ error }) => {
-      if (!isMounted) return;
-      if (error) {
-        console.warn('Error restaurando sesion:', error.message);
-        supabase.auth.signOut().catch(() => {});
-        setUser(null);
-        setPerfil(null);
-        setLoading(false);
-      }
+      // Para SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED: solo actualizamos user
+      // El perfil se carga en el Efecto 2 (separado)
+      setUser(session.user);
+      setLoading(false);
     });
 
     // Timeout de seguridad
     const timeout = setTimeout(() => {
       if (isMounted) {
-        setLoading(prev => {
-          if (prev) {
-            console.warn('Auth timeout: forzando fin de carga');
-            return false;
-          }
-          return prev;
-        });
+        setLoading(prev => prev ? false : prev);
       }
     }, 10000);
 
@@ -146,7 +116,31 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
       clearTimeout(timeout);
     };
-  }, [queryPerfil]);
+  }, []);
+
+  // === EFECTO 2: Cargar perfil UNA SOLA VEZ cuando cambia el user.id ===
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Si ya cargamos el perfil para este user, no volver a cargar
+    if (perfilLoadedForRef.current === user.id) return;
+
+    let cancelled = false;
+    perfilLoadedForRef.current = user.id; // Marcar que estamos cargando para este user
+
+    queryPerfil(user).then(p => {
+      if (cancelled) return;
+      if (p) {
+        setPerfil(p);
+      } else {
+        // Si fallo, permitir reintento
+        perfilLoadedForRef.current = null;
+      }
+    });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const login = useCallback(async (email, password) => {
     setLoading(true);
@@ -162,16 +156,18 @@ export function AuthProvider({ children }) {
     try { await supabase.auth.signOut(); } catch (e) {}
     setUser(null);
     setPerfil(null);
+    perfilLoadedForRef.current = null;
     setLoading(false);
     try { localStorage.removeItem('anabienestar-auth'); } catch (e) {}
   }, []);
 
   const refetchPerfil = useCallback(async () => {
     if (!user) return null;
+    perfilLoadedForRef.current = null; // Reset para permitir recarga
     const p = await queryPerfil(user);
     if (p) setPerfil(p);
     return p;
-  }, [user, queryPerfil]);
+  }, [user]);
 
   const value = {
     user,
