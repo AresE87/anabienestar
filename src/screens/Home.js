@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../supabaseClient';
 import { isPushSupported, getPermissionState, subscribeToPush } from '../utils/pushNotifications';
+import { getLanguage, setLanguage } from '../utils/i18n';
 
 // ── Datos estáticos ───────────────────────────────
 const CHECKLIST_ITEMS = [
@@ -31,6 +33,8 @@ const RECETA_FALLBACK = {
 
 export default function Home() {
   const { logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
+  const [lang, setLang] = useState(getLanguage());
   const {
     checklist,
     checklistLoaded,
@@ -103,22 +107,67 @@ export default function Home() {
             <p style={styles.greeting}>Hola, hermosa 🌿</p>
             <h1 style={styles.title}>Tu día empieza bien</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => logout()}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontFamily: "'Jost', sans-serif",
-              fontSize: '0.8rem',
-              color: 'var(--color-dark-green)',
-              opacity: 0.7,
-              cursor: 'pointer',
-              padding: '0.25rem 0',
-            }}
-          >
-            Cerrar sesión
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* Theme toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: 'none',
+                borderRadius: '50%',
+                width: 32,
+                height: 32,
+                fontSize: 16,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title={isDark ? 'Modo claro' : 'Modo oscuro'}
+            >
+              {isDark ? '☀️' : '🌙'}
+            </button>
+            {/* Language toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = lang === 'es' ? 'pt' : 'es';
+                setLanguage(next);
+                setLang(next);
+              }}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: 'none',
+                borderRadius: 8,
+                padding: '4px 8px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: "'Jost', sans-serif",
+                color: 'white',
+              }}
+              title="Cambiar idioma"
+            >
+              {lang.toUpperCase()}
+            </button>
+            <button
+              type="button"
+              onClick={() => logout()}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontFamily: "'Jost', sans-serif",
+                fontSize: '0.8rem',
+                color: 'var(--color-dark-green)',
+                opacity: 0.7,
+                cursor: 'pointer',
+                padding: '0.25rem 0',
+              }}
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
 

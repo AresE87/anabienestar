@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
+import { ThemeProvider } from './context/ThemeContext';
 import Home from './screens/Home';
 import Progreso from './screens/Progreso';
 import Recetas from './screens/Recetas';
@@ -95,13 +96,15 @@ function ProtectedApp() {
 function App() {
   return (
     <Router>
-      <AuthProvider>
-        <AuthGate>
-          <AppProvider>
-            <ProtectedApp />
-          </AppProvider>
-        </AuthGate>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthGate>
+            <AppProvider>
+              <ProtectedApp />
+            </AppProvider>
+          </AuthGate>
+        </AuthProvider>
+      </ThemeProvider>
     </Router>
   );
 }

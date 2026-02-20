@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { usePresence } from '../hooks/usePresence';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 
 export default function Chat() {
   const { perfil } = useAuth();
@@ -13,10 +15,46 @@ export default function Chat() {
   const [enviando, setEnviando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [anaTyping, setAnaTyping] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const lastTypingSentRef = useRef(0);
+  const adminIdRef = useRef(null);
+  const { isOnline } = usePresence(userId, 'clienta');
+  const { isRecording, formattedDuration, startRecording, stopRecording, cancelRecording } = useVoiceRecorder();
+
+  // Cachear admin ID para push notifications
+  useEffect(() => {
+    const fetchAdminId = async () => {
+      try {
+        const { data } = await supabase
+          .from('usuarios')
+          .select('id')
+          .eq('rol', 'admin')
+          .limit(1);
+        if (data?.length) adminIdRef.current = data[0].id;
+      } catch (e) {
+        // No critico
+      }
+    };
+    fetchAdminId();
+  }, []);
+
+  // Push notification helper (fire-and-forget)
+  const notifyAdmin = useCallback((body) => {
+    if (!adminIdRef.current) return;
+    supabase.functions.invoke('send-push', {
+      body: {
+        destinatario_id: adminIdRef.current,
+        title: perfil?.nombre || 'Clienta',
+        body: body.substring(0, 100),
+        url: '/admin?tab=mensajes',
+      },
+    }).catch(() => {});
+  }, [perfil?.nombre]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -216,6 +254,9 @@ export default function Chat() {
           .update({ no_leidos_admin: (conv.no_leidos_admin || 0) + 1 })
           .eq('id', conversacionId);
       }
+
+      // Push notification a Ana
+      notifyAdmin(texto);
     } catch (err) {
       console.error('Error:', err);
     } finally {
@@ -296,6 +337,9 @@ export default function Chat() {
           .update({ no_leidos_admin: (conv.no_leidos_admin || 0) + 1 })
           .eq('id', conversacionId);
       }
+
+      // Push notification a Ana
+      notifyAdmin(isImage ? 'Te envio una foto' : 'Te envio un video');
     } catch (err) {
       console.error('Error:', err);
       alert('Error subiendo archivo');
@@ -303,6 +347,85 @@ export default function Chat() {
       setSubiendo(false);
       // Reset file input
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Busqueda en mensajes
+  const searchTimeoutRef = useRef(null);
+  const handleSearch = useCallback(async (query) => {
+    if (!query.trim() || !conversacionId) { setSearchResults([]); return; }
+    try {
+      const { data } = await supabase
+        .from('mensajes')
+        .select('*')
+        .eq('conversacion_id', conversacionId)
+        .ilike('contenido', `%${query.trim()}%`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setSearchResults(data || []);
+    } catch (err) { console.error('Error buscando:', err); }
+  }, [conversacionId]);
+
+  const onSearchChange = useCallback((value) => {
+    setSearchQuery(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => handleSearch(value), 400);
+  }, [handleSearch]);
+
+  // Enviar mensaje de voz
+  const handleSendAudio = async () => {
+    const blob = await stopRecording();
+    if (!blob || !conversacionId) return;
+
+    setSubiendo(true);
+    try {
+      const fileName = `${userId}/${Date.now()}.webm`;
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, blob, { contentType: 'audio/webm' });
+
+      if (uploadError) {
+        alert('Error subiendo audio');
+        return;
+      }
+
+      const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+
+      const { error } = await supabase.from('mensajes').insert({
+        conversacion_id: conversacionId,
+        remitente_id: userId,
+        tipo: 'audio',
+        contenido: 'Mensaje de voz',
+        media_url: urlData.publicUrl,
+        media_type: 'audio/webm',
+      });
+
+      if (error) {
+        console.error('Error guardando audio:', error);
+        return;
+      }
+
+      await supabase.from('conversaciones').update({
+        ultimo_mensaje: '🎤 Audio',
+        ultimo_mensaje_at: new Date().toISOString(),
+      }).eq('id', conversacionId);
+
+      const { data: conv } = await supabase
+        .from('conversaciones')
+        .select('no_leidos_admin')
+        .eq('id', conversacionId)
+        .single();
+      if (conv) {
+        await supabase.from('conversaciones')
+          .update({ no_leidos_admin: (conv.no_leidos_admin || 0) + 1 })
+          .eq('id', conversacionId);
+      }
+
+      notifyAdmin('Te envio un audio');
+    } catch (err) {
+      console.error('Error enviando audio:', err);
+    } finally {
+      setSubiendo(false);
     }
   };
 
@@ -346,11 +469,55 @@ export default function Chat() {
       <div style={styles.header}>
         <div style={styles.headerContent}>
           <div style={styles.headerAvatar}>👩‍⚕️</div>
-          <div>
+          <div style={{ flex: 1 }}>
             <h1 style={styles.headerTitle}>Ana Karina</h1>
-            <p style={styles.headerSub}>Tu nutricionista</p>
+            <p style={styles.headerSub}>
+              {adminIdRef.current && isOnline(adminIdRef.current)
+                ? <><span style={{ color: '#4ade80' }}>●</span> En linea</>
+                : 'Tu nutricionista'}
+            </p>
           </div>
+          <button
+            style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: 36, height: 36, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => { setShowSearch(!showSearch); setSearchQuery(''); setSearchResults([]); }}
+          >
+            🔍
+          </button>
         </div>
+        {showSearch && (
+          <div style={{ marginTop: 8 }}>
+            <input
+              type="text"
+              placeholder="Buscar en mensajes..."
+              style={{ width: '100%', padding: '8px 14px', borderRadius: 20, border: 'none', fontFamily: 'Jost, sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              autoFocus
+            />
+            {searchResults.length > 0 && (
+              <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 6, background: 'white', borderRadius: 12, padding: '4px 0' }}>
+                {searchResults.map(msg => (
+                  <div
+                    key={msg.id}
+                    style={{ padding: '6px 12px', fontSize: 12, color: '#3d5c41', cursor: 'pointer', borderBottom: '1px solid #f0ede8', fontFamily: 'Jost, sans-serif' }}
+                    onClick={() => {
+                      const el = document.getElementById(`cmsg-${msg.id}`);
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.style.outline = '2px solid #b8956a';
+                        setTimeout(() => { el.style.outline = 'none'; }, 2000);
+                      }
+                      setShowSearch(false);
+                    }}
+                  >
+                    {msg.contenido?.substring(0, 60)}
+                    <span style={{ marginLeft: 6, opacity: 0.5 }}>{formatHora(msg.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Mensajes */}
@@ -372,7 +539,7 @@ export default function Chat() {
               {msgs.map((msg) => {
                 const esMio = msg.remitente_id === userId;
                 return (
-                  <div key={msg.id} style={{ ...styles.msgRow, justifyContent: esMio ? 'flex-end' : 'flex-start' }}>
+                  <div key={msg.id} id={`cmsg-${msg.id}`} style={{ ...styles.msgRow, justifyContent: esMio ? 'flex-end' : 'flex-start' }}>
                     <div style={{ ...styles.msgBubble, ...(esMio ? styles.msgBubbleMio : styles.msgBubbleAna) }}>
                       {/* Media */}
                       {msg.media_url && msg.tipo === 'imagen' && (
@@ -388,6 +555,14 @@ export default function Chat() {
                           src={msg.media_url}
                           controls
                           style={styles.msgVideo}
+                          preload="metadata"
+                        />
+                      )}
+                      {msg.media_url && msg.tipo === 'audio' && (
+                        <audio
+                          src={msg.media_url}
+                          controls
+                          style={{ maxWidth: '100%', height: 40, marginBottom: 6 }}
                           preload="metadata"
                         />
                       )}
@@ -433,46 +608,55 @@ export default function Chat() {
             <span>Subiendo archivo...</span>
           </div>
         )}
-        <div style={styles.inputRow}>
-          {/* Boton adjuntar */}
-          <button
-            style={styles.attachBtn}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={subiendo}
-          >
-            📎
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-          />
-
-          {/* Input de texto */}
-          <input
-            type="text"
-            placeholder="Escribe un mensaje..."
-            style={styles.textInput}
-            value={nuevoMensaje}
-            onChange={(e) => {
-              setNuevoMensaje(e.target.value);
-              sendTypingBroadcast();
-            }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
-            disabled={enviando}
-          />
-
-          {/* Boton enviar */}
-          <button
-            style={{ ...styles.sendBtn, opacity: !nuevoMensaje.trim() || enviando ? 0.5 : 1 }}
-            onClick={handleEnviar}
-            disabled={!nuevoMensaje.trim() || enviando}
-          >
-            ➤
-          </button>
-        </div>
+        {isRecording ? (
+          <div style={styles.inputRow}>
+            <button style={styles.cancelRecordBtn} onClick={cancelRecording}>✕</button>
+            <div style={styles.recordingIndicator}>
+              <span style={styles.recordingDot}>●</span>
+              <span style={styles.recordingTimer}>{formattedDuration}</span>
+            </div>
+            <button style={styles.sendBtn} onClick={handleSendAudio}>➤</button>
+          </div>
+        ) : (
+          <div style={styles.inputRow}>
+            <button
+              style={styles.attachBtn}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={subiendo}
+            >
+              📎
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
+            <button style={styles.micBtn} onClick={startRecording} disabled={subiendo}>
+              🎤
+            </button>
+            <input
+              type="text"
+              placeholder="Escribe un mensaje..."
+              style={styles.textInput}
+              value={nuevoMensaje}
+              onChange={(e) => {
+                setNuevoMensaje(e.target.value);
+                sendTypingBroadcast();
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
+              disabled={enviando}
+            />
+            <button
+              style={{ ...styles.sendBtn, opacity: !nuevoMensaje.trim() || enviando ? 0.5 : 1 }}
+              onClick={handleEnviar}
+              disabled={!nuevoMensaje.trim() || enviando}
+            >
+              ➤
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Spacer para BottomNav */}
@@ -704,5 +888,54 @@ const styles = {
     color: '#7a9e7e',
     fontStyle: 'italic',
     fontFamily: 'Jost, sans-serif',
+  },
+  micBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    border: 'none',
+    background: '#f8f4ee',
+    fontSize: 20,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  cancelRecordBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    border: 'none',
+    background: '#fde8e8',
+    color: '#c4762a',
+    fontSize: 18,
+    fontWeight: 700,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  recordingIndicator: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '10px 16px',
+    borderRadius: 24,
+    background: '#fde8e8',
+  },
+  recordingDot: {
+    color: '#e53e3e',
+    fontSize: 12,
+    animation: 'pulse 1s infinite',
+  },
+  recordingTimer: {
+    fontFamily: 'Jost, sans-serif',
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#e53e3e',
   },
 };

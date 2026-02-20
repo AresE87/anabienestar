@@ -2,7 +2,7 @@
 
 > Este archivo lo usa Claude Code para retomar contexto si se corta la sesion.
 > **Lee este archivo SIEMPRE al inicio de una nueva sesion.**
-> Actualizado: 2026-02-19
+> Actualizado: 2026-02-20
 
 ---
 
@@ -44,10 +44,16 @@ src/
     AdminMaterial.js        - CRUD eBooks/PDFs
     AdminVideos.js          - CRUD videos/audios
     AdminRecetas.js         - CRUD recetas
-    AdminMensajes.js        - Panel chat admin: sonido, typing, respuestas rapidas [v4.4.1]
+    AdminMensajes.js        - Panel chat admin: sonido, typing, respuestas rapidas, busqueda, audio [v5.3]
+    AdminEstadisticas.js    - Dashboard estadisticas de engagement (Recharts) [v5.4]
+    AdminGrupos.js          - Placeholder programa grupal [v5.5]
+  hooks/
+    usePresence.js          - Hook Supabase Presence (indicador en linea) [v5.1]
+    useVoiceRecorder.js     - Hook MediaRecorder (grabar audio) [v5.2]
   utils/
     pushNotifications.js    - Push notifications (VAPID, SW)
     seedData.js             - Insertar datos de ejemplo
+    i18n.js                 - Traducciones ES/PT (scaffolding) [v5.5]
 ```
 
 ## Tablas de Supabase
@@ -98,6 +104,12 @@ src/
 | v4.3.1 | Fix material admin: SQL migracion columnas + mejor UX carga guias |
 | v4.4 | Login OAuth (Google/Apple) + BottomNav 6 pestanas + auto-crear perfil |
 | v4.4.1 | Sonido notificacion admin + typing indicator bidireccional + respuestas rapidas + quitar Apple |
+| v5.0 | Push notifications bidireccionales para chat (clienta→admin, admin→clienta) |
+| v5.1 | Indicador "en linea" con Supabase Presence |
+| v5.2 | Mensajes de voz (grabar, enviar, reproducir audio en chat) |
+| v5.3 | Busqueda en mensajes (admin + clienta) |
+| v5.4 | Estadisticas de engagement (Recharts) + exportar ficha a PDF |
+| v5.5 | Scaffolding: modo oscuro (ThemeContext), multi-idioma (i18n ES/PT), programa grupal (schema + placeholder) |
 
 ## Notas importantes
 - Supabase URL: https://rnbyxwcrtulxctplerqs.supabase.co
@@ -160,30 +172,40 @@ Esto sube v3.1 + v4.0 + docs al remoto.
 4. Crear archivo `public/sw.js` con el handler de push events
 5. Crear edge function en Supabase para enviar push cuando llega un mensaje
 
+### Paso 8: Ejecutar migracion v5 en Supabase
+1. Ir a Supabase → SQL Editor
+2. Copiar TODO el contenido de `supabase_v5_migration.sql`
+3. Ejecutar el SQL
+4. Esto hace:
+   - Agrega tipo 'audio' al constraint de mensajes (para mensajes de voz)
+   - Crea tablas `grupos`, `grupo_miembros`, `grupo_metas`, `grupo_progreso` (para programa grupal futuro)
+   - Crea politicas RLS para las tablas de grupos
+5. **Sin esto, los mensajes de voz NO se pueden guardar**
+
 ---
 
 ## PASOS FUTUROS DEL PROYECTO (para proximas sesiones con Claude)
 
 ### Prioridad Alta
 - [x] **Acceso a Material**: Agregada pestana Material al BottomNav con 6 items (v4.4)
-- [ ] **Edge function push notifications para chat**: Cuando una clienta envia un mensaje, enviar push notification al celular de Ana (no solo la notificacion del navegador)
+- [x] **Push notifications bidireccionales para chat**: Clienta→admin y admin→clienta via edge function `send-push` (v5.0)
 - [ ] **Archivo public/sw.js**: Crear el Service Worker para manejar push events (mostrar notificacion nativa en el celular de Ana)
 
 ### Prioridad Media
 - [x] **Sonido de notificacion**: Ding sutil via AudioContext cuando llega mensaje de clienta (v4.4.1)
 - [x] **Indicador "escribiendo..."**: Supabase Broadcast bidireccional entre Chat.js y AdminMensajes.js (v4.4.1)
-- [ ] **Indicador "en linea"**: Mostrar cuando la clienta/Ana esta conectada
-- [ ] **Mensajes de voz**: Boton para grabar y enviar audios
+- [x] **Indicador "en linea"**: Supabase Presence con hook usePresence.js (v5.1)
+- [x] **Mensajes de voz**: Grabar, enviar y reproducir audio con MediaRecorder API (v5.2)
 - [x] **Respuestas rapidas para Ana**: Boton ⚡ con 7 templates frecuentes en AdminMensajes.js (v4.4.1)
-- [ ] **Buscar en mensajes**: Buscar texto dentro de las conversaciones
+- [x] **Buscar en mensajes**: Busqueda con scroll-to-message en admin y clienta (v5.3)
 
 ### Prioridad Baja
 - [ ] **Telegram bot mejorado**: Conectar el chat de la app con el bot de Telegram (mensajes bidireccionales)
-- [ ] **Estadisticas de engagement**: Dashboard con metricas de uso (checklist completion rate, dias activos, etc.)
-- [ ] **Exportar datos**: Que Ana pueda exportar fichas/progreso a PDF
-- [ ] **Modo oscuro**: Tema dark para la app movil
-- [ ] **Multi-idioma**: Soporte para portugues (clientas de Brasil)
-- [ ] **Programa grupal**: Funcionalidad para grupos/challenges entre clientas
+- [x] **Estadisticas de engagement**: Dashboard Recharts con checklist, mood, mensajes (v5.4)
+- [x] **Exportar datos**: Exportar ficha de clienta a PDF via window.print() (v5.4)
+- [x] **Modo oscuro**: ThemeContext scaffolding con toggle en Home (v5.5)
+- [x] **Multi-idioma**: i18n scaffolding ES/PT con selector en Home (v5.5)
+- [x] **Programa grupal**: Schema SQL + placeholder AdminGrupos (v5.5)
 
 ---
 
@@ -306,6 +328,40 @@ Esto sube v3.1 + v4.0 + docs al remoto.
    - Toggle: boton cambia color gold cuando el menu esta abierto
 5. **Animaciones CSS**:
    - Agregadas `@keyframes pulse` y `@keyframes fadeIn` en index.css
+
+### Sesion 9 — 2026-02-20 (v5.0→v5.5: todos los pendientes)
+1. **Push notifications bidireccionales (v5.0)**:
+   - Chat.js: `notifyAdmin()` fire-and-forget tras enviar texto/foto/video
+   - AdminMensajes.js: push a clienta tras responder
+   - Admin.js: `subscribeToPush(adminPerfil.id)` al montar
+2. **Indicador "en linea" (v5.1)**:
+   - Nuevo `src/hooks/usePresence.js`: Supabase Presence en canal `online-users`
+   - Chat.js: punto verde + "En linea" si Ana esta conectada
+   - AdminMensajes.js: punto verde en avatar de conversaciones + "En linea"/"Desconectada" en header
+3. **Mensajes de voz (v5.2)**:
+   - Nuevo `src/hooks/useVoiceRecorder.js`: MediaRecorder con audio/webm
+   - Chat.js y AdminMensajes.js: boton mic, UI de grabacion (barra roja + timer), envio a storage, reproduccion con `<audio controls>`
+   - SQL: `supabase_v5_migration.sql` agrega tipo 'audio' al constraint de mensajes
+4. **Busqueda en mensajes (v5.3)**:
+   - AdminMensajes.js: boton 🔍 en header, panel busqueda con debounce 400ms, click-to-scroll con highlight dorado
+   - Chat.js: misma funcionalidad simplificada
+5. **Estadisticas de engagement (v5.4)**:
+   - Nuevo `src/components/AdminEstadisticas.js`: BarChart (checklist %), PieChart (mood), LineChart (mensajes), cards resumen
+   - Selector de rango 7d/30d/90d, datos de Supabase en paralelo
+6. **Exportar ficha a PDF (v5.4)**:
+   - AdminClientas.js: boton "📄 PDF" genera HTML con datos de clienta + `window.print()`
+7. **Modo oscuro scaffolding (v5.5)**:
+   - Nuevo `src/context/ThemeContext.js`: temas light/dark, persistencia localStorage
+   - App.js: envuelto con `<ThemeProvider>`
+   - Home.js: toggle 🌙/☀️ en header
+8. **Multi-idioma scaffolding (v5.5)**:
+   - Nuevo `src/utils/i18n.js`: traducciones ES/PT, funciones t(), setLanguage(), getLanguage()
+   - Home.js: toggle ES/PT en header
+9. **Programa grupal placeholder (v5.5)**:
+   - Nuevo `src/components/AdminGrupos.js`: card "Proximamente" con preview
+   - SQL: tablas grupos/miembros/metas/progreso en `supabase_v5_migration.sql`
+   - Admin.js: nuevas pestanas Estadisticas (📈) y Grupos (👥)
+10. **Compilacion exitosa** con `npx react-scripts build`
 
 ---
 

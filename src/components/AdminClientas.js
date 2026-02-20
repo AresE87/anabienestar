@@ -443,19 +443,60 @@ export default function AdminClientas() {
                 </p>
               ) : (
                 <>
-                  <button
-                    style={{ ...styles.buttonPrimary, width: '100%', marginBottom: '1.5rem' }}
-                    onClick={() =>
-                      editingFicha ? handleSaveFicha() : setEditingFicha(true)
-                    }
-                    disabled={guardando}
-                  >
-                    {guardando
-                      ? 'Guardando...'
-                      : editingFicha
-                        ? 'Guardar cambios'
-                        : 'Editar ficha'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                    <button
+                      style={{ ...styles.buttonPrimary, flex: 1 }}
+                      onClick={() =>
+                        editingFicha ? handleSaveFicha() : setEditingFicha(true)
+                      }
+                      disabled={guardando}
+                    >
+                      {guardando
+                        ? 'Guardando...'
+                        : editingFicha
+                          ? 'Guardar cambios'
+                          : 'Editar ficha'}
+                    </button>
+                    {!editingFicha && (
+                      <button
+                        style={{ ...styles.buttonPrimary, background: colors.gold, flexShrink: 0 }}
+                        onClick={() => {
+                          const nombre = selectedClienta?.nombre || selectedClienta?.email || 'Clienta';
+                          const printContent = `<!DOCTYPE html><html><head><title>Ficha - ${nombre}</title>
+                            <style>
+                              body { font-family: 'Jost', Arial, sans-serif; color: #3d5c41; padding: 2rem; max-width: 700px; margin: 0 auto; }
+                              h1 { font-family: 'Playfair Display', Georgia, serif; color: #3d5c41; border-bottom: 2px solid #7a9e7e; padding-bottom: 0.5rem; }
+                              .field { margin-bottom: 1rem; }
+                              .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #7a9e7e; font-weight: 600; }
+                              .value { font-size: 1rem; margin-top: 0.25rem; }
+                              .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+                              .header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
+                              .avatar { font-size: 3rem; }
+                            </style></head><body>
+                            <div class="header"><span class="avatar">${selectedClienta?.avatar || '👩'}</span><h1>${nombre}</h1></div>
+                            <div class="grid">
+                              <div class="field"><div class="label">Email</div><div class="value">${selectedClienta?.email || '—'}</div></div>
+                              <div class="field"><div class="label">Fecha inicio</div><div class="value">${ficha.fecha_inicio || '—'}</div></div>
+                              <div class="field"><div class="label">Peso inicial</div><div class="value">${ficha.peso_inicial || '—'} kg</div></div>
+                              <div class="field"><div class="label">Peso actual</div><div class="value">${ficha.peso_actual || ficha.peso_inicial || '—'} kg</div></div>
+                              <div class="field"><div class="label">Objetivo</div><div class="value">${ficha.objetivo_kg || '—'} kg a bajar</div></div>
+                              <div class="field"><div class="label">Nivel actividad</div><div class="value">${ficha.nivel_actividad || '—'}</div></div>
+                            </div>
+                            <div class="field"><div class="label">Restricciones</div><div class="value">${ficha.restricciones || 'Ninguna'}</div></div>
+                            <div class="field"><div class="label">Notas de Ana</div><div class="value">${ficha.notas_karina || 'Sin notas'}</div></div>
+                            <hr style="border: 1px solid #eae5dd; margin: 2rem 0;">
+                            <p style="font-size: 0.75rem; opacity: 0.5; text-align: center;">Anabienestar Integral · Ficha exportada el ${new Date().toLocaleDateString('es-UY')}</p>
+                          </body></html>`;
+                          const w = window.open('', '_blank');
+                          w.document.write(printContent);
+                          w.document.close();
+                          w.print();
+                        }}
+                      >
+                        📄 PDF
+                      </button>
+                    )}
+                  </div>
 
                   <div style={styles.profileField}>
                     <div style={styles.profileLabel}>Fecha de inicio</div>

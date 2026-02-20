@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { usePresence } from '../hooks/usePresence';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 
 const colors = {
   sageDark: '#3d5c41',
@@ -9,11 +11,6 @@ const colors = {
   gold: '#b8956a',
   orange: '#c4762a',
 };
-
-// Sonido de notificacion sutil (ding corto generado como Data URI)
-const NOTIFICATION_SOUND = 'data:audio/wav;base64,UklGRl9vT19teleQAIBAAEARQAxABAACABkYXRhId29vT18A' +
-  // Mini beep WAV — se genera en runtime con AudioContext como fallback
-  '';
 
 const RESPUESTAS_RAPIDAS = [
   '¡Hola! ¿Como estas hoy?',
@@ -47,6 +44,8 @@ const playNotificationSound = () => {
 export default function AdminMensajes() {
   const { perfil } = useAuth();
   const adminId = perfil?.id;
+  const { isOnline } = usePresence(adminId, 'admin');
+  const { isRecording, formattedDuration, startRecording, stopRecording, cancelRecording } = useVoiceRecorder();
 
   const [conversaciones, setConversaciones] = useState([]);
   const [selectedConv, setSelectedConv] = useState(null);
@@ -58,6 +57,9 @@ export default function AdminMensajes() {
   const [subiendo, setSubiendo] = useState(false);
   const [showRespuestas, setShowRespuestas] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -231,6 +233,33 @@ export default function AdminMensajes() {
     }).catch(() => {});
   }, [selectedConv, adminId]);
 
+  // Busqueda en mensajes
+  const searchTimeoutRef = useRef(null);
+  const handleSearch = useCallback(async (query) => {
+    if (!query.trim() || !selectedConv) {
+      setSearchResults([]);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from('mensajes')
+        .select('*')
+        .eq('conversacion_id', selectedConv.id)
+        .ilike('contenido', `%${query.trim()}%`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setSearchResults(data || []);
+    } catch (err) {
+      console.error('Error buscando:', err);
+    }
+  }, [selectedConv]);
+
+  const onSearchChange = useCallback((value) => {
+    setSearchQuery(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => handleSearch(value), 400);
+  }, [handleSearch]);
+
   // Enviar mensaje
   const handleEnviar = async () => {
     if (!nuevoMensaje.trim() || !selectedConv || enviando) return;
@@ -269,6 +298,19 @@ export default function AdminMensajes() {
         await supabase.from('conversaciones')
           .update({ no_leidos_clienta: (conv.no_leidos_clienta || 0) + 1 })
           .eq('id', selectedConv.id);
+      }
+
+      // Push notification a la clienta
+      const clientaId = selectedConv.clienta_id;
+      if (clientaId) {
+        supabase.functions.invoke('send-push', {
+          body: {
+            destinatario_id: clientaId,
+            title: 'Ana Karina',
+            body: texto.substring(0, 100),
+            url: '/chat',
+          },
+        }).catch(() => {});
       }
     } catch (err) {
       console.error('Error:', err);
@@ -345,11 +387,92 @@ export default function AdminMensajes() {
           .update({ no_leidos_clienta: (conv.no_leidos_clienta || 0) + 1 })
           .eq('id', selectedConv.id);
       }
+
+      // Push notification a la clienta
+      const clientaId = selectedConv.clienta_id;
+      if (clientaId) {
+        supabase.functions.invoke('send-push', {
+          body: {
+            destinatario_id: clientaId,
+            title: 'Ana Karina',
+            body: isImage ? 'Te envio una foto' : 'Te envio un video',
+            url: '/chat',
+          },
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error('Error:', err);
     } finally {
       setSubiendo(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Enviar mensaje de voz
+  const handleSendAudio = async () => {
+    const blob = await stopRecording();
+    if (!blob || !selectedConv) return;
+
+    setSubiendo(true);
+    try {
+      const fileName = `admin/${Date.now()}.webm`;
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, blob, { contentType: 'audio/webm' });
+
+      if (uploadError) {
+        alert('Error subiendo audio');
+        return;
+      }
+
+      const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+
+      const { error } = await supabase.from('mensajes').insert({
+        conversacion_id: selectedConv.id,
+        remitente_id: adminId,
+        tipo: 'audio',
+        contenido: 'Mensaje de voz',
+        media_url: urlData.publicUrl,
+        media_type: 'audio/webm',
+      });
+
+      if (error) {
+        console.error('Error guardando audio:', error);
+        return;
+      }
+
+      await supabase.from('conversaciones').update({
+        ultimo_mensaje: '🎤 Audio',
+        ultimo_mensaje_at: new Date().toISOString(),
+      }).eq('id', selectedConv.id);
+
+      const { data: conv } = await supabase
+        .from('conversaciones')
+        .select('no_leidos_clienta')
+        .eq('id', selectedConv.id)
+        .single();
+      if (conv) {
+        await supabase.from('conversaciones')
+          .update({ no_leidos_clienta: (conv.no_leidos_clienta || 0) + 1 })
+          .eq('id', selectedConv.id);
+      }
+
+      // Push notification a la clienta
+      const clientaId = selectedConv.clienta_id;
+      if (clientaId) {
+        supabase.functions.invoke('send-push', {
+          body: {
+            destinatario_id: clientaId,
+            title: 'Ana Karina',
+            body: 'Te envio un audio',
+            url: '/chat',
+          },
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('Error enviando audio:', err);
+    } finally {
+      setSubiendo(false);
     }
   };
 
@@ -435,7 +558,16 @@ export default function AdminMensajes() {
                   }}
                   onClick={() => setSelectedConv(conv)}
                 >
-                  <div style={styles.convAvatar}>{getAvatar(conv)}</div>
+                  <div style={{ ...styles.convAvatar, position: 'relative' }}>
+                    {getAvatar(conv)}
+                    {isOnline(conv.clienta_id) && (
+                      <span style={{
+                        position: 'absolute', bottom: 1, right: 1,
+                        width: 10, height: 10, borderRadius: '50%',
+                        background: '#4ade80', border: '2px solid white',
+                      }} />
+                    )}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={styles.convHeader}>
                       <span style={{ ...styles.convName, fontWeight: noLeidos > 0 ? 700 : 500 }}>
@@ -474,11 +606,97 @@ export default function AdminMensajes() {
             <>
               {/* Chat header */}
               <div style={styles.chatHeader}>
-                <div style={styles.chatHeaderAvatar}>{getAvatar(selectedConv)}</div>
+                <div style={{ ...styles.chatHeaderAvatar, position: 'relative' }}>
+                  {getAvatar(selectedConv)}
+                  {isOnline(selectedConv.clienta_id) && (
+                    <span style={{
+                      position: 'absolute', bottom: 0, right: 0,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: '#4ade80', border: '2px solid white',
+                    }} />
+                  )}
+                </div>
                 <div>
                   <div style={styles.chatHeaderName}>{getNombre(selectedConv)}</div>
+                  <div style={{
+                    fontSize: '0.75rem',
+                    color: isOnline(selectedConv.clienta_id) ? '#4ade80' : colors.sage,
+                    fontFamily: "'Jost', sans-serif",
+                  }}>
+                    {isOnline(selectedConv.clienta_id) ? 'En linea' : 'Desconectada'}
+                  </div>
                 </div>
+                <button
+                  style={{
+                    ...styles.attachBtn,
+                    marginLeft: 'auto',
+                    background: showSearch ? colors.sage : colors.cream,
+                    color: showSearch ? 'white' : colors.sageDark,
+                    fontSize: 16,
+                  }}
+                  onClick={() => { setShowSearch(!showSearch); setSearchQuery(''); setSearchResults([]); }}
+                  title="Buscar en mensajes"
+                >
+                  🔍
+                </button>
               </div>
+
+              {/* Search panel */}
+              {showSearch && (
+                <div style={{
+                  padding: '0.5rem 1rem',
+                  borderBottom: `1px solid ${colors.cream}`,
+                  background: 'white',
+                }}>
+                  <input
+                    type="text"
+                    placeholder="Buscar en esta conversacion..."
+                    style={{ ...styles.textInput, width: '100%', boxSizing: 'border-box' }}
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    autoFocus
+                  />
+                  {searchResults.length > 0 && (
+                    <div style={{
+                      maxHeight: 180, overflowY: 'auto', marginTop: '0.5rem',
+                    }}>
+                      {searchResults.map(msg => (
+                        <div
+                          key={msg.id}
+                          style={{
+                            padding: '0.5rem',
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            fontFamily: "'Jost', sans-serif",
+                            color: colors.sageDark,
+                            borderBottom: `1px solid ${colors.cream}`,
+                          }}
+                          onClick={() => {
+                            const el = document.getElementById(`msg-${msg.id}`);
+                            if (el) {
+                              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              el.style.outline = `2px solid ${colors.gold}`;
+                              setTimeout(() => { el.style.outline = 'none'; }, 2000);
+                            }
+                            setShowSearch(false);
+                          }}
+                        >
+                          <span>{msg.contenido?.substring(0, 80)}</span>
+                          <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', opacity: 0.5 }}>
+                            {formatHora(msg.created_at)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {searchQuery.trim() && searchResults.length === 0 && (
+                    <p style={{ fontSize: '0.8rem', color: colors.sage, fontFamily: "'Jost', sans-serif", margin: '0.5rem 0 0' }}>
+                      Sin resultados
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Messages */}
               <div style={styles.chatMessages}>
@@ -497,7 +715,7 @@ export default function AdminMensajes() {
                       {msgs.map(msg => {
                         const esAdmin = msg.remitente_id === adminId;
                         return (
-                          <div key={msg.id} style={{ ...styles.msgRow, justifyContent: esAdmin ? 'flex-end' : 'flex-start' }}>
+                          <div key={msg.id} id={`msg-${msg.id}`} style={{ ...styles.msgRow, justifyContent: esAdmin ? 'flex-end' : 'flex-start' }}>
                             <div style={{ ...styles.msgBubble, ...(esAdmin ? styles.msgAdmin : styles.msgClienta) }}>
                               {msg.media_url && msg.tipo === 'imagen' && (
                                 <img
@@ -512,6 +730,14 @@ export default function AdminMensajes() {
                                   src={msg.media_url}
                                   controls
                                   style={styles.msgMedia}
+                                  preload="metadata"
+                                />
+                              )}
+                              {msg.media_url && msg.tipo === 'audio' && (
+                                <audio
+                                  src={msg.media_url}
+                                  controls
+                                  style={{ maxWidth: '100%', height: 40, marginBottom: 6 }}
                                   preload="metadata"
                                 />
                               )}
@@ -566,53 +792,80 @@ export default function AdminMensajes() {
                   </div>
                 )}
 
-                <div style={styles.inputRow}>
-                  <button
-                    style={styles.attachBtn}
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={subiendo}
-                    title="Adjuntar foto o video"
-                  >
-                    📎
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    style={{ display: 'none' }}
-                    onChange={handleFileSelect}
-                  />
-                  <button
-                    style={{
-                      ...styles.quickReplyBtn,
-                      background: showRespuestas ? colors.gold : colors.cream,
-                      color: showRespuestas ? 'white' : colors.gold,
-                    }}
-                    onClick={() => setShowRespuestas(!showRespuestas)}
-                    title="Respuestas rapidas"
-                  >
-                    ⚡
-                  </button>
-                  <input
-                    type="text"
-                    placeholder="Escribe tu respuesta..."
-                    style={styles.textInput}
-                    value={nuevoMensaje}
-                    onChange={(e) => {
-                      setNuevoMensaje(e.target.value);
-                      sendTypingBroadcast();
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
-                    disabled={enviando}
-                  />
-                  <button
-                    style={{ ...styles.sendBtn, opacity: !nuevoMensaje.trim() || enviando ? 0.5 : 1 }}
-                    onClick={handleEnviar}
-                    disabled={!nuevoMensaje.trim() || enviando}
-                  >
-                    Enviar
-                  </button>
-                </div>
+                {isRecording ? (
+                  <div style={styles.inputRow}>
+                    <button
+                      style={{ ...styles.attachBtn, background: '#fde8e8', color: colors.orange, fontWeight: 700 }}
+                      onClick={cancelRecording}
+                    >
+                      ✕
+                    </button>
+                    <div style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      gap: '0.5rem', padding: '0.65rem 1rem', borderRadius: 20, background: '#fde8e8',
+                    }}>
+                      <span style={{ color: '#e53e3e', animation: 'pulse 1s infinite' }}>●</span>
+                      <span style={{ fontFamily: "'Jost', sans-serif", fontWeight: 600, color: '#e53e3e' }}>{formattedDuration}</span>
+                    </div>
+                    <button style={styles.sendBtn} onClick={handleSendAudio}>Enviar</button>
+                  </div>
+                ) : (
+                  <div style={styles.inputRow}>
+                    <button
+                      style={styles.attachBtn}
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={subiendo}
+                      title="Adjuntar foto o video"
+                    >
+                      📎
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      style={{ display: 'none' }}
+                      onChange={handleFileSelect}
+                    />
+                    <button
+                      style={styles.attachBtn}
+                      onClick={startRecording}
+                      disabled={subiendo}
+                      title="Grabar audio"
+                    >
+                      🎤
+                    </button>
+                    <button
+                      style={{
+                        ...styles.quickReplyBtn,
+                        background: showRespuestas ? colors.gold : colors.cream,
+                        color: showRespuestas ? 'white' : colors.gold,
+                      }}
+                      onClick={() => setShowRespuestas(!showRespuestas)}
+                      title="Respuestas rapidas"
+                    >
+                      ⚡
+                    </button>
+                    <input
+                      type="text"
+                      placeholder="Escribe tu respuesta..."
+                      style={styles.textInput}
+                      value={nuevoMensaje}
+                      onChange={(e) => {
+                        setNuevoMensaje(e.target.value);
+                        sendTypingBroadcast();
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEnviar(); } }}
+                      disabled={enviando}
+                    />
+                    <button
+                      style={{ ...styles.sendBtn, opacity: !nuevoMensaje.trim() || enviando ? 0.5 : 1 }}
+                      onClick={handleEnviar}
+                      disabled={!nuevoMensaje.trim() || enviando}
+                    >
+                      Enviar
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

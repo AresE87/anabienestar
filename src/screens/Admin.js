@@ -7,7 +7,10 @@ import AdminClientas from '../components/AdminClientas';
 import AdminFichas from '../components/AdminFichas';
 import AdminRecetas from '../components/AdminRecetas';
 import AdminMensajes from '../components/AdminMensajes';
+import AdminEstadisticas from '../components/AdminEstadisticas';
+import AdminGrupos from '../components/AdminGrupos';
 import { seedAllData } from '../utils/seedData';
+import { isPushSupported, subscribeToPush } from '../utils/pushNotifications';
 
 const colors = {
   sageDark: '#3d5c41',
@@ -56,7 +59,7 @@ function getWeekRange() {
 }
 
 function Admin() {
-  const { logout } = useAuth();
+  const { logout, perfil: adminPerfil } = useAuth();
   const [activeTab, setActiveTab] = useState('resumen');
 
   // ── Resumen state ──
@@ -99,8 +102,10 @@ function Admin() {
     { id: 'videos', label: 'Videos', icon: '🎥' },
     { id: 'recetas', label: 'Recetas', icon: '🍽️' },
     { id: 'mensajes', label: 'Mensajes', icon: '💬' },
+    { id: 'estadisticas', label: 'Estadisticas', icon: '📈' },
     { id: 'notificaciones', label: 'Notificaciones', icon: '🔔' },
     { id: 'agenda', label: 'Agenda', icon: '📅' },
+    { id: 'grupos', label: 'Grupos', icon: '👥' },
     { id: 'configuracion', label: 'Configuración', icon: '⚙️' }
   ];
 
@@ -277,12 +282,21 @@ function Admin() {
     };
   }, [loadMensajesNoLeidos]);
 
-  // Pedir permiso de notificaciones del navegador para Admin
+  // Pedir permiso de notificaciones del navegador para Admin + suscribir a push
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
+    const setupPush = async () => {
+      if (!('Notification' in window)) return;
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted' && adminPerfil?.id && isPushSupported()) {
+          subscribeToPush(adminPerfil.id);
+        }
+      } else if (Notification.permission === 'granted' && adminPerfil?.id && isPushSupported()) {
+        subscribeToPush(adminPerfil.id);
+      }
+    };
+    setupPush();
+  }, [adminPerfil?.id]);
 
   // ══════════════════════════════════════════════
   // HANDLERS
@@ -904,8 +918,10 @@ function Admin() {
       case 'videos': return <AdminVideos />;
       case 'recetas': return <AdminRecetas />;
       case 'mensajes': return <AdminMensajes />;
+      case 'estadisticas': return <AdminEstadisticas />;
       case 'notificaciones': return renderNotificaciones();
       case 'agenda': return renderAgenda();
+      case 'grupos': return <AdminGrupos />;
       case 'configuracion': return renderConfiguracion();
       default: return renderResumen();
     }
