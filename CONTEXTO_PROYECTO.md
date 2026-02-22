@@ -2,7 +2,7 @@
 
 > Este archivo lo usa Claude Code para retomar contexto si se corta la sesion.
 > **Lee este archivo SIEMPRE al inicio de una nueva sesion.**
-> Actualizado: 2026-02-20
+> Actualizado: 2026-02-22
 
 ---
 
@@ -599,6 +599,49 @@ Login con email volvio a funcionar. Google OAuth sigue fallando (problema separa
 4. **Probar app end-to-end**: todas las pantallas como clienta y admin
 5. **VAPID keys** para push notifications: `npx web-push generate-vapid-keys` → `.env`
 6. **(Opcional) Actualizar RLS de otras tablas** para usar `is_admin()` en vez de subconsultas directas (conversaciones, mensajes, material_usuarios) — no urgente, funcionan porque la subconsulta es cross-table
+
+### Sesion 13 - 2026-02-22 (fix login bugs: OAuth error silencioso + perfilError state)
+
+**Contexto**: Cael (AI assistant de Edgardo via OpenClaw) reviso el repo y aplico fixes de login mientras Edgardo descansaba.
+
+#### Cambios realizados
+
+**Bug 1: Error OAuth silencioso — NO se mostraba al usuario**
+- **Problema**: Cuando Google OAuth fallaba el redirect (ej: "Unable to exchange external code"), el error llegaba en los query params de la URL. AuthContext lo detectaba y lo logeaba a consola, pero NUNCA se lo mostraba al usuario. El usuario veia la pantalla de login vacia sin saber que paso.
+- **Fix en `AuthContext.js`**: Agrego estado `oauthError` (string | null). Cuando se detecta un error OAuth en la URL, se mapea a un mensaje amigable en espanol y se guarda en `oauthError`. Se expone `oauthError` y `clearOauthError` en el contexto.
+- **Fix en `Login.js`**: Importa `useAuth()`, tiene un `useEffect` que detecta `oauthError` al montar, lo muestra en el campo `error` y llama `clearOauthError()` para no mostrarlo dos veces. El estilo del error ahora tiene fondo sutil para mejor visibilidad.
+
+**Bug 2: "Cargando perfil..." eterno cuando fetchPerfil falla**
+- **Problema**: Si `fetchPerfil` fallaba (todas las 3 capas sin resultado), `loading` se ponia en `false` pero `perfil` quedaba `null`. App.js mostraba "Cargando perfil..." aunque ya no estaba cargando. El usuario no sabia si habia un error o si debia esperar.
+- **Fix en `AuthContext.js`**: Agrego estado `perfilError` (boolean). Si `fetchPerfil` retorna null, se setea `perfilError = true`. Si retorna un perfil, se setea `perfilError = false`. Tambien se resetea en SIGNED_OUT y logout.
+- **Fix en `App.js`**: La pantalla de "no perfil" ahora distingue dos estados:
+  - Si `perfilError = true`: muestra icono ⚠️ + "No se pudo cargar tu perfil" + mensaje explicativo
+  - Si `perfilError = false` (aun cargando): muestra spinner animado + "Cargando perfil..."
+- Agrego spinner CSS animado en pantalla de loading y en pantalla de perfil (reemplaza texto plano "Cargando...")
+
+**Mejora adicional: `refetchPerfil` sin full reload**
+- `AuthContext.js` expone `refetchPerfil()` que llama `fetchPerfil` de nuevo sin recargar la pagina
+- App.js usa `refetchPerfil` en el boton "🔄 Reintentar" (antes hacia `window.location.reload()`)
+
+**Otros fixes menores en Login.js**:
+- Ortografia: "contrasena" → "contraseña", "Intenta" → "Intentá" (vos)
+- Agrego deteccion de "Too many requests" con mensaje apropiado
+- Agrego deteccion de "invalid_credentials" como alias de "Invalid login"
+
+#### Pendientes para proxima sesion (ACTUALIZADO)
+1. **Ejecutar `supabase_rls_usuarios.sql` (v2)** en Supabase SQL Editor — archivo con `is_admin()` SECURITY DEFINER
+2. **Regenerar Google Client Secret** en Google Cloud Console → actualizar en Supabase → Authentication → Providers → Google → Save
+3. **Probar Google OAuth**: con el nuevo Client Secret + el fix del oauthError, ahora si Google falla se mostrara el mensaje al usuario
+4. **Probar app end-to-end**: todas las pantallas como clienta y admin
+5. **VAPID keys** para push notifications: `npx web-push generate-vapid-keys` → `.env`
+6. **(Opcional) Actualizar RLS de otras tablas** para usar `is_admin()` — no urgente
+
+#### Estado actual de la app
+- ✅ Login email/password funciona
+- ✅ Errores de Google OAuth ahora se muestran al usuario (fix v5.7.2)
+- ✅ Estado de error de perfil diferenciado de estado de carga (fix v5.7.2)
+- ❌ Google OAuth "Unable to exchange external code" — requiere nuevo Client Secret (accion manual)
+- ❌ RLS en usuarios deshabilitado temporalmente — pendiente ejecutar SQL v2
 
 ---
 

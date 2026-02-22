@@ -7,7 +7,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [perfilError, setPerfilError] = useState(false);
+  const [oauthError, setOauthError] = useState(null);
   const eventSeqRef = useRef(0);
+
+  const clearOauthError = useCallback(() => setOauthError(null), []);
 
   const fetchPerfil = useCallback(async (authUser) => {
     if (!authUser?.id) return null;
@@ -87,10 +91,20 @@ export function AuthProvider({ children }) {
     // Capturar y loggear errores OAuth de la URL antes de limpiarla
     const urlParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
-    const oauthError = urlParams.get('error') || hashParams.get('error');
+    const oauthErr = urlParams.get('error') || hashParams.get('error');
     const oauthDesc = urlParams.get('error_description') || hashParams.get('error_description');
-    if (oauthError) {
-      console.error('OAuth error:', oauthError, oauthDesc || '');
+    if (oauthErr) {
+      console.error('OAuth error:', oauthErr, oauthDesc || '');
+      // Mapear errores conocidos a mensajes amigables
+      let msg = 'Error al iniciar sesión con Google. Intentá de nuevo.';
+      if (oauthErr === 'access_denied') {
+        msg = 'Cancelaste el inicio de sesión con Google.';
+      } else if (oauthDesc && oauthDesc.includes('exchange')) {
+        msg = 'Hubo un problema al conectar con Google. Intentá de nuevo en unos segundos.';
+      } else if (oauthDesc) {
+        msg = `Error de autenticación: ${decodeURIComponent(oauthDesc).replace(/\+/g, ' ')}`;
+      }
+      if (isMounted) setOauthError(msg);
       window.history.replaceState({}, '', window.location.pathname);
     }
 
@@ -101,6 +115,7 @@ export function AuthProvider({ children }) {
         eventSeqRef.current++;
         setUser(null);
         setPerfil(null);
+        setPerfilError(false);
         setLoading(false);
         return;
       }
@@ -112,7 +127,12 @@ export function AuthProvider({ children }) {
         const p = await fetchPerfil(session.user);
         if (!isMounted || mySeq !== eventSeqRef.current) return;
 
-        if (p) setPerfil(p);
+        if (p) {
+          setPerfil(p);
+          setPerfilError(false);
+        } else {
+          setPerfilError(true);
+        }
         setLoading(false);
       }
     });
@@ -120,7 +140,10 @@ export function AuthProvider({ children }) {
     // Timeout de seguridad
     const timeout = setTimeout(() => {
       if (isMounted) {
-        setLoading(prev => prev ? false : prev);
+        setLoading(prev => {
+          if (prev) setPerfilError(true);
+          return prev ? false : prev;
+        });
       }
     }, 12000);
 
@@ -145,16 +168,32 @@ export function AuthProvider({ children }) {
     try { await supabase.auth.signOut(); } catch (e) {}
     setUser(null);
     setPerfil(null);
+    setPerfilError(false);
     setLoading(false);
     try { localStorage.removeItem('anabienestar-auth'); } catch (e) {}
   }, []);
+
+  const refetchPerfil = useCallback(async () => {
+    if (!user) return;
+    setPerfilError(false);
+    const p = await fetchPerfil(user);
+    if (p) {
+      setPerfil(p);
+    } else {
+      setPerfilError(true);
+    }
+  }, [user, fetchPerfil]);
 
   const value = {
     user,
     perfil,
     loading,
+    perfilError,
+    oauthError,
+    clearOauthError,
     login,
     logout,
+    refetchPerfil,
     isAdmin: perfil?.rol === 'admin',
     isClienta: perfil?.rol === 'clienta',
   };

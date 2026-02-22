@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext';
 
 const colors = {
   cream: '#f8f4ee',
@@ -20,17 +21,27 @@ const GoogleIcon = () => (
 
 
 export default function Login({ onLoginError }) {
+  const { oauthError, clearOauthError } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(null); // 'google' | 'apple' | null
+  const [oauthLoading, setOauthLoading] = useState(null); // 'google' | null
+
+  // Mostrar error OAuth al montar (si hay uno pendiente del redirect)
+  useEffect(() => {
+    if (oauthError) {
+      setError(oauthError);
+      clearOauthError();
+    }
+  }, [oauthError, clearOauthError]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     if (!email.trim() || !password) {
-      setError('Ingresa tu email y contrasena.');
+      setError('Ingresá tu email y contraseña.');
       return;
     }
     setLoading(true);
@@ -41,17 +52,19 @@ export default function Login({ onLoginError }) {
       });
       if (authError) {
         const msg = authError.message || '';
-        if (msg.includes('Invalid login')) {
-          setError('Email o contrasena incorrectos. Revisa los datos e intenta de nuevo.');
+        if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) {
+          setError('Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.');
         } else if (msg.includes('Email not confirmed')) {
-          setError('Tu cuenta aun no fue confirmada. Revisa tu correo.');
+          setError('Tu cuenta aún no fue confirmada. Revisá tu correo.');
+        } else if (msg.includes('Too many requests')) {
+          setError('Demasiados intentos. Esperá unos minutos e intentá de nuevo.');
         } else {
-          setError('No pudimos iniciar sesion. Intenta de nuevo.');
+          setError('No pudimos iniciar sesión. Intentá de nuevo.');
         }
         if (typeof onLoginError === 'function') onLoginError(authError);
       }
     } catch (err) {
-      setError('Error de conexion. Verifica tu internet e intenta de nuevo.');
+      setError('Error de conexión. Verificá tu internet e intentá de nuevo.');
       if (typeof onLoginError === 'function') onLoginError(err);
     } finally {
       setLoading(false);
@@ -62,19 +75,19 @@ export default function Login({ onLoginError }) {
     setError('');
     setOauthLoading(provider);
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const { error: oauthErr } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: window.location.origin,
         },
       });
-      if (oauthError) {
-        setError('Error al conectar con ' + (provider === 'google' ? 'Google' : 'Apple') + '. Intenta de nuevo.');
+      if (oauthErr) {
+        setError('Error al conectar con Google. Intentá de nuevo.');
         setOauthLoading(null);
       }
       // Si no hay error, el navegador redirige al provider
     } catch (err) {
-      setError('Error de conexion. Verifica tu internet.');
+      setError('Error de conexión. Verificá tu internet.');
       setOauthLoading(null);
     }
   };
@@ -116,6 +129,7 @@ export default function Login({ onLoginError }) {
       fontSize: '1rem',
       boxSizing: 'border-box',
       fontFamily: "'Jost', sans-serif",
+      outline: 'none',
     },
     button: {
       width: '100%',
@@ -135,6 +149,10 @@ export default function Login({ onLoginError }) {
       fontSize: '0.9rem',
       marginBottom: '1rem',
       textAlign: 'center',
+      background: 'rgba(181, 84, 84, 0.08)',
+      padding: '0.6rem 0.8rem',
+      borderRadius: 8,
+      lineHeight: 1.4,
     },
     // OAuth styles
     divider: {
@@ -168,15 +186,12 @@ export default function Login({ onLoginError }) {
       gap: '0.6rem',
       transition: 'all 0.2s',
       boxSizing: 'border-box',
-    },
-    googleBtn: {
       background: 'white',
       color: '#3c4043',
-      marginBottom: '0.75rem',
     },
   };
 
-  const isDisabled = loading || oauthLoading;
+  const isDisabled = loading || oauthLoading !== null;
 
   return (
     <div style={styles.container}>
@@ -194,7 +209,7 @@ export default function Login({ onLoginError }) {
           />
           <input
             type="password"
-            placeholder="Contrasena"
+            placeholder="Contraseña"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             style={styles.input}
@@ -202,8 +217,8 @@ export default function Login({ onLoginError }) {
             disabled={isDisabled}
           />
           {error ? <p style={styles.error}>{error}</p> : null}
-          <button type="submit" style={styles.button} disabled={isDisabled}>
-            {loading ? 'Iniciando sesion...' : 'Iniciar sesion'}
+          <button type="submit" style={{ ...styles.button, opacity: isDisabled ? 0.7 : 1 }} disabled={isDisabled}>
+            {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
         </form>
 
@@ -214,11 +229,11 @@ export default function Login({ onLoginError }) {
           <div style={styles.dividerLine} />
         </div>
 
-        {/* OAuth buttons */}
+        {/* OAuth - Google */}
         <button
           onClick={() => handleOAuth('google')}
           disabled={isDisabled}
-          style={{ ...styles.oauthBtn, ...styles.googleBtn, opacity: isDisabled ? 0.6 : 1 }}
+          style={{ ...styles.oauthBtn, opacity: isDisabled ? 0.6 : 1 }}
         >
           <GoogleIcon />
           {oauthLoading === 'google' ? 'Conectando...' : 'Continuar con Google'}

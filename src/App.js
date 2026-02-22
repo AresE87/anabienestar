@@ -14,7 +14,7 @@ import Login from './screens/Login';
 import BottomNav from './components/BottomNav';
 
 function AuthGate({ children }) {
-  const { user, perfil, loading, logout } = useAuth();
+  const { user, perfil, loading, perfilError, logout, refetchPerfil } = useAuth();
 
   if (loading) {
     return (
@@ -26,8 +26,19 @@ function AuthGate({ children }) {
         justifyContent: 'center',
         fontFamily: "'Jost', sans-serif",
         color: '#3d5c41',
+        flexDirection: 'column',
+        gap: 12,
       }}>
-        Cargando...
+        <div style={{
+          width: 32,
+          height: 32,
+          border: '3px solid rgba(61,92,65,0.2)',
+          borderTop: '3px solid #3d5c41',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+        }} />
+        <span style={{ fontSize: '0.95rem', color: '#7a9e7e' }}>Cargando...</span>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -51,11 +62,37 @@ function AuthGate({ children }) {
         textAlign: 'center',
         gap: 16,
       }}>
-        <p>Cargando perfil...</p>
-        <div style={{ display: 'flex', gap: 12 }}>
+        {perfilError ? (
+          <>
+            <div style={{ fontSize: '2rem' }}>⚠️</div>
+            <p style={{ fontWeight: 600, fontSize: '1.05rem', margin: 0 }}>
+              No se pudo cargar tu perfil
+            </p>
+            <p style={{ color: '#7a9e7e', fontSize: '0.9rem', margin: 0 }}>
+              Puede ser un problema de conexión o que tu cuenta no está configurada todavía.
+            </p>
+          </>
+        ) : (
+          <>
+            <div style={{
+              width: 28,
+              height: 28,
+              border: '3px solid rgba(61,92,65,0.2)',
+              borderTop: '3px solid #3d5c41',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+            }} />
+            <p style={{ margin: 0, color: '#7a9e7e', fontSize: '0.95rem' }}>Cargando perfil...</p>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </>
+        )}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
-            onClick={() => window.location.reload()}
-            style={{ padding: '10px 20px', background: '#7a9e7e', color: 'white', border: 'none', borderRadius: 8, fontFamily: "'Jost', sans-serif", cursor: 'pointer' }}
+            onClick={async () => {
+              if (refetchPerfil) await refetchPerfil();
+              else window.location.reload();
+            }}
+            style={{ padding: '10px 20px', background: '#7a9e7e', color: 'white', border: 'none', borderRadius: 8, fontFamily: "'Jost', sans-serif", cursor: 'pointer', fontSize: '0.95rem' }}
           >
             🔄 Reintentar
           </button>
@@ -64,7 +101,7 @@ function AuthGate({ children }) {
               await logout();
               window.location.reload();
             }}
-            style={{ padding: '10px 20px', background: '#c4762a', color: 'white', border: 'none', borderRadius: 8, fontFamily: "'Jost', sans-serif", cursor: 'pointer' }}
+            style={{ padding: '10px 20px', background: '#c4762a', color: 'white', border: 'none', borderRadius: 8, fontFamily: "'Jost', sans-serif", cursor: 'pointer', fontSize: '0.95rem' }}
           >
             🚪 Cerrar sesión
           </button>
